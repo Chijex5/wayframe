@@ -1,26 +1,115 @@
 @import "tailwindcss";
 
+
+/* -------------------------------------------------------------------------- */
+/* Theme Variables                                                            */
+/* -------------------------------------------------------------------------- */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Dark is default */
+  color-scheme: dark;
+
+  /* Colors */
+  --bg: #0b0f14;
+  --surface: #131820;
+  --surface-raised: #1b222c;
+  --border: #2a323d;
+  --text-primary: #e4e7eb;
+  --text-secondary: #8b95a1;
+  --accent: #4c8dff;
+  --danger: #e5484d;
+
+  /* Categories */
+  --cat-core: #4c8dff;
+  --cat-commerce: #4fb0a5;
+  --cat-auth: #7a79e8;
+
+  /* Typography */
+  --font-ui: var(--font-ibm-plex-sans);
+  --font-mono: var(--font-ibm-plex-mono);
+
+  /* Font Sizes */
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.625rem;
+  --text-3xl: 2.125rem;
+  --text-4xl: 2.875rem;
+  --text-5xl: 3.5rem;
+  --text-6xl: 4.5rem;
+
+  /* Radius */
+  --radius-none: 0px;
+  --radius-sm: 2px;
+  --radius-md: 2px;
 }
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-raised: #eef0f3;
+  --border: #dce0e5;
+  --text-primary: #14181f;
+  --text-secondary: #5b6470;
+  --accent: #2563eb;
+  --danger: #d93636;
+
+  --cat-core: #2563eb;
+  --cat-commerce: #0f8b7e;
+  --cat-auth: #5b57d1;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tailwind Theme                                                             */
+/* -------------------------------------------------------------------------- */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Fonts */
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-mono);
+
+  /* Colors */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-border: var(--border);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+
+  --color-cat-core: var(--cat-core);
+  --color-cat-commerce: var(--cat-commerce);
+  --color-cat-auth: var(--cat-auth);
+
+  /* Radius */
+  --radius-none: var(--radius-none);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* -------------------------------------------------------------------------- */
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  @apply bg-bg text-text-primary font-sans;
+  font-size: var(--text-base);
+  -webkit-font-smoothing: antialiased;
+}
+
+.react-flow__controls{
+  background-color: var(--surface-raised)!important;
+}
+.react-flow__controls-button{
+  background-color: var(--surface-raised)!important;
+  border-bottom: 1px solid var(--border)!important;
 }
