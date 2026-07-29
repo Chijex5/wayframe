@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   addEdge,
   useEdgesState,
@@ -6,19 +6,19 @@ import {
   useReactFlow,
   type Connection,
   type Edge,
-  type NodeChange } from
-'@xyflow/react';
+  type NodeChange,
+} from "@xyflow/react";
 import {
   defaultEdgeOptions,
   describeToolCall,
   generationPayload,
   planToolCalls,
   type GeneratedEdge,
-  type GenerationPayload } from
-'../data/flowPayload';
-import type { FlowToolCall, FlowVersion, ScreenNodeType } from '../types/flow';
-import { mockSuggestions, type FlowSuggestion } from '../data/suggestions';
-import { useMockStream } from './useMockStream';
+  type GenerationPayload,
+} from "../data/flowPayload";
+import type { FlowToolCall, FlowVersion, ScreenNodeType } from "../types/flow";
+import { mockSuggestions, type FlowSuggestion } from "../data/suggestions";
+import { useMockStream } from "./useMockStream";
 
 const STREAM_TICK_MS = 350;
 const CHECK_DURATION_MS = 1800;
@@ -29,14 +29,14 @@ function toEdge(edge: GeneratedEdge): Edge {
 
 function timestamp(): string {
   return new Date().toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   });
 }
 
 export function useFlowEngine() {
-  const { fitView } = useReactFlow();
+  const { fitView, screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<ScreenNodeType>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [versions, setVersions] = useState<FlowVersion[]>([]);
@@ -63,9 +63,10 @@ export function useFlowEngine() {
   useEffect(
     () => () => {
       clearTimer();
-      if (checkTimerRef.current !== null) window.clearTimeout(checkTimerRef.current);
+      if (checkTimerRef.current !== null)
+        window.clearTimeout(checkTimerRef.current);
     },
-    [clearTimer]
+    [clearTimer],
   );
 
   const frameView = useCallback(() => {
@@ -75,20 +76,20 @@ export function useFlowEngine() {
   }, [fitView]);
 
   const logVersion = useCallback(
-    (summary: string, source: FlowVersion['source']) => {
+    (summary: string, source: FlowVersion["source"]) => {
       versionCountRef.current += 1;
       setVersions((current) => [
-      {
-        id: `v_${String(versionCountRef.current).padStart(4, '0')}`,
-        label: `v0.${versionCountRef.current}`,
-        summary,
-        timestamp: timestamp(),
-        source
-      },
-      ...current]
-      );
+        {
+          id: `v_${String(versionCountRef.current).padStart(4, "0")}`,
+          label: `v0.${versionCountRef.current}`,
+          summary,
+          timestamp: timestamp(),
+          source,
+        },
+        ...current,
+      ]);
     },
-    []
+    [],
   );
 
   /**
@@ -110,7 +111,7 @@ export function useFlowEngine() {
       timerRef.current = window.setInterval(() => {
         // Edges become eligible one tick after both endpoints exist.
         const ready = pendingEdges.filter(
-          (edge) => present.has(edge.source) && present.has(edge.target)
+          (edge) => present.has(edge.source) && present.has(edge.target),
         );
         if (ready.length > 0) {
           const readyIds = new Set(ready.map((edge) => edge.id));
@@ -131,55 +132,62 @@ export function useFlowEngine() {
         if (pendingNodes.length === 0 && pendingEdges.length === 0) {
           clearTimer();
           setIsGenerating(false);
-          logVersion('Initial flow generated from description.', 'chat');
+          logVersion("Initial flow generated from description.", "chat");
         }
       }, STREAM_TICK_MS);
     },
-    [clearTimer, frameView, logVersion, setEdges, setNodes]
+    [clearTimer, frameView, logVersion, setEdges, setNodes],
   );
 
   /** Single reducer applying tool-call-shaped edits to canvas state. */
   const applyToolCall = useCallback(
     (call: FlowToolCall) => {
       switch (call.type) {
-        case 'addNode':{
-            const { id, label, screenId, category, position } = call.payload;
-            setNodes((current) => [
+        case "addNode": {
+          const { id, label, screenId, category, position } = call.payload;
+          setNodes((current) => [
             ...current,
             {
               id,
-              type: 'screen',
+              type: "screen",
               position,
               selected: false,
-              data: { label, screenId, category }
-            }]
-            );
-            break;
-          }
-        case 'connect':{
-            const { source, target } = call.payload;
-            setEdges((current) =>
+              data: { label, screenId, category },
+            },
+          ]);
+          break;
+        }
+        case "connect": {
+          const { source, target } = call.payload;
+          setEdges((current) =>
             addEdge(
-              { id: `e-${source}-${target}`, source, target, ...defaultEdgeOptions },
-              current
-            )
-            );
-            break;
-          }
-        case 'renameNode':{
-            const { id, label } = call.payload;
-            setNodes((current) =>
+              {
+                id: `e-${source}-${target}`,
+                source,
+                target,
+                ...defaultEdgeOptions,
+              },
+              current,
+            ),
+          );
+          break;
+        }
+        case "renameNode": {
+          const { id, label } = call.payload;
+          setNodes((current) =>
             current.map((node) =>
-            node.id === id ? { ...node, data: { ...node.data, label } } : node
-            )
-            );
-            break;
-          }
+              node.id === id
+                ? { ...node, data: { ...node.data, label } }
+                : node,
+            ),
+          );
+          break;
+        }
         default:
           break;
       }
     },
-    [setEdges, setNodes]
+    [setEdges, setNodes],
   );
 
   const submitInstruction = useCallback(
@@ -194,19 +202,31 @@ export function useFlowEngine() {
       }
 
       const calls = planToolCalls(instruction, nodesRef.current);
-      const summaries = calls.map((call) => describeToolCall(call, nodesRef.current));
+      const summaries = calls.map((call) =>
+        describeToolCall(call, nodesRef.current),
+      );
       calls.forEach(applyToolCall);
-      summaries.forEach((summary) => logVersion(`${summary}.`, 'chat'));
+      summaries.forEach((summary) => logVersion(`${summary}.`, "chat"));
       frameView();
-      reply.start(`Applied ${calls.length} change${calls.length > 1 ? 's' : ''} — ${summaries.join('; ')}.`);
+      reply.start(
+        `Applied ${calls.length} change${calls.length > 1 ? "s" : ""} — ${summaries.join("; ")}.`,
+      );
     },
-    [applyToolCall, frameView, isGenerating, logVersion, reply, streamFlowPayload]
+    [
+      applyToolCall,
+      frameView,
+      isGenerating,
+      logVersion,
+      reply,
+      streamFlowPayload,
+    ],
   );
 
   const runCompletenessCheck = useCallback(() => {
     if (nodesRef.current.length === 0 || isChecking) return;
     setIsChecking(true);
-    if (checkTimerRef.current !== null) window.clearTimeout(checkTimerRef.current);
+    if (checkTimerRef.current !== null)
+      window.clearTimeout(checkTimerRef.current);
     checkTimerRef.current = window.setTimeout(() => {
       setSuggestions(mockSuggestions);
       setIsChecking(false);
@@ -222,27 +242,32 @@ export function useFlowEngine() {
       const id = `${suggestion.screenId}_${current.length + 1}`;
 
       applyToolCall({
-        type: 'addNode',
+        type: "addNode",
         payload: {
           id,
-          label: suggestion.title.replace(/^Add\s+/i, ''),
+          label: suggestion.title.replace(/^Add\s+/i, ""),
           screenId: suggestion.screenId,
           category: suggestion.category,
-          position: anchor ?
-          { x: anchor.position.x + 250, y: anchor.position.y + 90 } :
-          { x: 0, y: 0 }
-        }
+          position: anchor
+            ? { x: anchor.position.x + 250, y: anchor.position.y + 90 }
+            : { x: 0, y: 0 },
+        },
       });
 
       if (anchor) {
-        applyToolCall({ type: 'connect', payload: { source: anchor.id, target: id } });
+        applyToolCall({
+          type: "connect",
+          payload: { source: anchor.id, target: id },
+        });
       }
 
-      logVersion(`Approved suggestion: ${suggestion.title}`, 'suggestion');
-      setSuggestions((items) => items.filter((item) => item.id !== suggestion.id));
+      logVersion(`Approved suggestion: ${suggestion.title}`, "suggestion");
+      setSuggestions((items) =>
+        items.filter((item) => item.id !== suggestion.id),
+      );
       frameView();
     },
-    [applyToolCall, frameView, logVersion]
+    [applyToolCall, frameView, logVersion],
   );
 
   const rejectSuggestion = useCallback((id: string) => {
@@ -255,31 +280,74 @@ export function useFlowEngine() {
       onNodesChange(changes);
 
       const selectedChange = changes.find(
-        (change) => change.type === 'select' && change.selected
+        (change) => change.type === "select" && change.selected,
       );
-      if (selectedChange && selectedChange.type === 'select') {
+      if (selectedChange && selectedChange.type === "select") {
         setNodes((current) =>
-        current.map((node) => ({
-          ...node,
-          selected: node.id === selectedChange.id
-        }))
+          current.map((node) => ({
+            ...node,
+            selected: node.id === selectedChange.id,
+          })),
         );
         setEdges((current) =>
-        current.map((edge) =>
-        edge.selected ? { ...edge, selected: false } : edge
-        )
+          current.map((edge) =>
+            edge.selected ? { ...edge, selected: false } : edge,
+          ),
         );
       }
     },
-    [onNodesChange, setEdges, setNodes]
+    [onNodesChange, setEdges, setNodes],
+  );
+
+  const addManualNode = useCallback(() => {
+    const index = nodesRef.current.length + 1;
+    const position = screenToFlowPosition({
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+    });
+
+    setNodes((current) => [
+      ...current.map((node) => ({ ...node, selected: false })),
+      {
+        id: `manual_${Date.now()}`,
+        type: "screen",
+        position,
+        selected: true,
+        data: {
+          label: `New Screen ${index}`,
+          screenId: `scr_manual_${index}`,
+          category: "core",
+        },
+      },
+    ]);
+    setEdges((current) =>
+      current.map((edge) =>
+        edge.selected ? { ...edge, selected: false } : edge,
+      ),
+    );
+    logVersion(`Added New Screen ${index} manually.`, "manual");
+  }, [logVersion, screenToFlowPosition, setEdges, setNodes]);
+
+  const deleteNode = useCallback(
+    (id: string) => {
+      const node = nodesRef.current.find((item) => item.id === id);
+      setNodes((current) => current.filter((item) => item.id !== id));
+      setEdges((current) =>
+        current.filter((edge) => edge.source !== id && edge.target !== id),
+      );
+      logVersion(`Deleted ${node?.data.label ?? "node"} manually.`, "manual");
+    },
+    [logVersion, setEdges, setNodes],
   );
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      setEdges((current) => addEdge({ ...connection, ...defaultEdgeOptions }, current));
-      logVersion('Connected two screens manually.', 'manual');
+      setEdges((current) =>
+        addEdge({ ...connection, ...defaultEdgeOptions }, current),
+      );
+      logVersion("Connected two screens manually.", "manual");
     },
-    [logVersion, setEdges]
+    [logVersion, setEdges],
   );
 
   const isBusy = isGenerating || reply.isStreaming;
@@ -291,6 +359,8 @@ export function useFlowEngine() {
       onNodesChange: handleNodesChange,
       onEdgesChange,
       onConnect,
+      addManualNode,
+      deleteNode,
       versions,
       isGenerating,
       isBusy,
@@ -303,27 +373,29 @@ export function useFlowEngine() {
       suggestions,
       runCompletenessCheck,
       approveSuggestion,
-      rejectSuggestion
+      rejectSuggestion,
     }),
     [
-    approveSuggestion,
-    edges,
-    handleNodesChange,
-    isBusy,
-    isChecking,
-    isGenerating,
-    nodes,
-    onConnect,
-    onEdgesChange,
-    prompt,
-    rejectSuggestion,
-    reply.isStreaming,
-    reply.text,
-    runCompletenessCheck,
-    submitInstruction,
-    suggestions,
-    versions]
-
+      addManualNode,
+      approveSuggestion,
+      deleteNode,
+      edges,
+      handleNodesChange,
+      isBusy,
+      isChecking,
+      isGenerating,
+      nodes,
+      onConnect,
+      onEdgesChange,
+      prompt,
+      rejectSuggestion,
+      reply.isStreaming,
+      reply.text,
+      runCompletenessCheck,
+      submitInstruction,
+      suggestions,
+      versions,
+    ],
   );
 }
 
