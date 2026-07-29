@@ -14,10 +14,9 @@ export function ScreenNode({ id, data, selected }: NodeProps<ScreenNodeType>) {
 
   useEffect(() => {
     if (isEditing) {
-      setDraft(data.label);
       requestAnimationFrame(() => inputRef.current?.select());
     }
-  }, [isEditing, data.label]);
+  }, [isEditing]);
 
   const save = () => {
     const next = draft.trim();
@@ -71,6 +70,7 @@ export function ScreenNode({ id, data, selected }: NodeProps<ScreenNodeType>) {
           aria-label={`Rename ${data.label}`}
           onClick={(event) => {
             event.stopPropagation();
+            setDraft(data.label);
             setIsEditing((open) => !open);
           }}
           className="nodrag absolute right-1 top-1 flex h-5 w-5 items-center justify-center text-text-secondary opacity-0 transition-opacity hover:text-accent focus-visible:opacity-100 group-hover:opacity-100"

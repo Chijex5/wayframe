@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   MessageSquareIcon,
@@ -20,11 +20,10 @@ export function VersionHistoryPanel({
   versions
 }: VersionHistoryPanelProps) {
   const latestId = versions[0]?.id ?? null;
-  const [activeId, setActiveId] = useState<string | null>(latestId);
-
-  useEffect(() => {
-    setActiveId(latestId);
-  }, [latestId]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const activeId = versions.some((version) => version.id === selectedId)
+    ? selectedId
+    : latestId;
 
   return (
     <AnimatePresence>
@@ -63,7 +62,7 @@ export function VersionHistoryPanel({
               <li key={version.id}>
                     <button
                   type="button"
-                  onClick={() => setActiveId(version.id)}
+                  onClick={() => setSelectedId(version.id)}
                   aria-current={isActive ? 'true' : undefined}
                   className={[
                   'flex w-full flex-col items-start gap-1 border-b border-border px-3 py-2.5 text-left transition-colors',

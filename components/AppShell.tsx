@@ -1,24 +1,38 @@
-import React, { useEffect, useState } from 'react';
+"use client";
+
+import React, { useState } from 'react';
+import type { Edge } from '@xyflow/react';
 import { TopBar } from './TopBar';
 import { VersionHistoryPanel } from './VersionHistoryPanel';
 import { SuggestionsPanel } from './SuggestionsPanel';
 import { FlowCanvas } from './canvas/FlowCanvas';
 import { useFlowEngine } from '../hooks/useFlowEngine';
 import { useTheme } from '../hooks/useTheme';
+import type { ScreenNodeType } from '../types/flow';
 
-export function AppShell() {
+type AppShellProps = {
+  initialProjectName?: string;
+  initialNodes?: ScreenNodeType[];
+  initialEdges?: Edge[];
+};
+
+export function AppShell({
+  initialProjectName,
+  initialNodes,
+  initialEdges
+}: AppShellProps) {
   const { theme, toggleTheme } = useTheme();
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isCheckOpen, setIsCheckOpen] = useState(false);
-  const engine = useFlowEngine();
-
-  // Only one right-hand panel at a time.
-  useEffect(() => {
-    if (isCheckOpen) setIsHistoryOpen(false);
-  }, [isCheckOpen]);
+  const engine = useFlowEngine({
+    initialProjectName,
+    initialNodes,
+    initialEdges
+  });
 
   const handleCheckFlow = () => {
     setIsCheckOpen(true);
+    setIsHistoryOpen(false);
     engine.runCompletenessCheck();
   };
 
@@ -33,6 +47,7 @@ export function AppShell() {
           setIsCheckOpen(false);
         }}
         versionLabel={engine.versions[0]?.label ?? null}
+        projectName={engine.projectName}
         canCheckFlow={engine.hasFlow && !engine.isGenerating}
         isChecking={engine.isChecking}
         onCheckFlow={handleCheckFlow} />

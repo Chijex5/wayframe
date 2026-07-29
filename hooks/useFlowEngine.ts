@@ -22,6 +22,7 @@ import { useMockStream } from "./useMockStream";
 
 const STREAM_TICK_MS = 350;
 const CHECK_DURATION_MS = 1800;
+const UNTITLED_PROJECT = "Untitled Project";
 
 function toEdge(edge: GeneratedEdge): Edge {
   return { ...edge, ...defaultEdgeOptions };
@@ -35,18 +36,73 @@ function timestamp(): string {
   });
 }
 
-export function useFlowEngine() {
+function deriveProjectName(description: string): string {
+  const text = description.toLowerCase();
+
+  if (text.match(/\b(e-?commerce|shop|store|cart|checkout|product)\b/)) {
+    return "E-commerce Flow";
+  }
+  if (text.match(/\b(saas|dashboard|analytics|admin|report)\b/)) {
+    return "SaaS Dashboard Flow";
+  }
+  if (text.match(/\b(sign in|login|auth|onboarding|account)\b/)) {
+    return "Onboarding Flow";
+  }
+
+  const stopWords = new Set([
+    "a",
+    "an",
+    "and",
+    "app",
+    "build",
+    "create",
+    "for",
+    "flow",
+    "generate",
+    "make",
+    "of",
+    "the",
+    "to",
+    "with",
+  ]);
+
+  const words = description
+    .replace(/[^a-zA-Z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !stopWords.has(word.toLowerCase()))
+    .slice(0, 3);
+
+  if (words.length === 0) return "Generated Flow";
+
+  return `${words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ")} Flow`;
+}
+
+type UseFlowEngineOptions = {
+  initialProjectName?: string;
+  initialNodes?: ScreenNodeType[];
+  initialEdges?: Edge[];
+};
+
+export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   const { fitView, screenToFlowPosition } = useReactFlow();
-  const [nodes, setNodes, onNodesChange] = useNodesState<ScreenNodeType>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<ScreenNodeType>(
+    options.initialNodes ?? [],
+  );
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(
+    options.initialEdges ?? [],
+  );
   const [versions, setVersions] = useState<FlowVersion[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [prompt, setPrompt] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState(
+    options.initialProjectName ?? UNTITLED_PROJECT,
+  );
   const [isChecking, setIsChecking] = useState(false);
   const [suggestions, setSuggestions] = useState<FlowSuggestion[]>([]);
 
   const nodesRef = useRef(nodes);
-  nodesRef.current = nodes;
   const timerRef = useRef<number | null>(null);
   const checkTimerRef = useRef<number | null>(null);
   const versionCountRef = useRef(0);
@@ -69,11 +125,19 @@ export function useFlowEngine() {
     [clearTimer],
   );
 
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
   const frameView = useCallback(() => {
     window.setTimeout(() => {
       fitView({ padding: 0.18, duration: 260, maxZoom: 1 });
     }, 0);
   }, [fitView]);
+
+  useEffect(() => {
+    if ((options.initialNodes?.length ?? 0) > 0) frameView();
+  }, [frameView, options.initialNodes?.length]);
 
   const logVersion = useCallback(
     (summary: string, source: FlowVersion["source"]) => {
@@ -98,7 +162,7 @@ export function useFlowEngine() {
    * can replace the queue below without changing how items render on arrival.
    */
   const streamFlowPayload = useCallback(
-    (payload: GenerationPayload) => {
+    (payload: GenerationPayload, instruction: string) => {
       clearTimer();
       setNodes([]);
       setEdges([]);
@@ -132,6 +196,7 @@ export function useFlowEngine() {
         if (pendingNodes.length === 0 && pendingEdges.length === 0) {
           clearTimer();
           setIsGenerating(false);
+          setProjectName(deriveProjectName(instruction));
           logVersion("Initial flow generated from description.", "chat");
         }
       }, STREAM_TICK_MS);
@@ -197,7 +262,7 @@ export function useFlowEngine() {
 
       if (nodesRef.current.length === 0) {
         reply.reset();
-        streamFlowPayload(generationPayload);
+        streamFlowPayload(generationPayload, instruction);
         return;
       }
 
@@ -365,6 +430,7 @@ export function useFlowEngine() {
       isGenerating,
       isBusy,
       hasFlow: nodes.length > 0,
+      projectName,
       prompt,
       replyText: reply.text,
       isReplyStreaming: reply.isStreaming,
@@ -387,6 +453,7 @@ export function useFlowEngine() {
       nodes,
       onConnect,
       onEdgesChange,
+      projectName,
       prompt,
       rejectSuggestion,
       reply.isStreaming,

@@ -10,6 +10,7 @@ type TopBarProps = {
   isHistoryOpen: boolean;
   onToggleHistory: () => void;
   versionLabel: string | null;
+  projectName: string;
   canCheckFlow: boolean;
   isChecking: boolean;
   onCheckFlow: () => void;
@@ -21,6 +22,7 @@ export function TopBar({
   isHistoryOpen,
   onToggleHistory,
   versionLabel,
+  projectName,
   canCheckFlow,
   isChecking,
   onCheckFlow
@@ -29,8 +31,8 @@ export function TopBar({
     <header className="z-30 flex h-12 w-full shrink-0 items-center justify-between border-b border-border bg-surface px-3">
       <div className="flex items-center gap-2.5">
         <Link
-          href="/"
-          aria-label="Back to Wayframe home"
+          href="/app"
+          aria-label="Back to Wayframe dashboard"
           className="flex items-center gap-2.5">
           
           <span aria-hidden="true" className="h-3.5 w-[3px] bg-accent" />
@@ -38,6 +40,10 @@ export function TopBar({
             Wayframe
           </h1>
         </Link>
+        <span className="font-mono text-sm text-text-secondary">/</span>
+        <span className="max-w-[260px] truncate text-sm font-bold text-text-primary">
+          {projectName}
+        </span>
         <span
           className="border border-border bg-surface-raised px-1.5 py-0.5 font-mono text-xs leading-none text-text-secondary"
           style={{ borderRadius: '2px' }}>

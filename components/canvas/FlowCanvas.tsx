@@ -5,6 +5,7 @@ import {
   BackgroundVariant,
   Controls,
   ReactFlow,
+  type Edge,
   type EdgeTypes,
   type Node,
   type NodeTypes,
@@ -16,6 +17,7 @@ import { CommandBar } from "../CommandBar";
 import { PlusIcon } from "lucide-react";
 import { defaultEdgeOptions } from "../../data/flowPayload";
 import type { FlowEngine } from "../../hooks/useFlowEngine";
+import type { ScreenNodeType } from "../../types/flow";
 
 type FlowCanvasProps = {
   engine: FlowEngine;
@@ -31,7 +33,7 @@ export function FlowCanvas({ engine }: FlowCanvasProps) {
     null,
   );
 
-  const nodes = useMemo(
+  const nodes = useMemo<ScreenNodeType[]>(
     () =>
       engine.nodes.map((node) => ({
         ...node,
@@ -46,7 +48,7 @@ export function FlowCanvas({ engine }: FlowCanvasProps) {
 
   return (
     <div className="relative h-full w-full bg-bg">
-      <ReactFlow
+      <ReactFlow<ScreenNodeType, Edge>
         nodes={nodes}
         edges={engine.edges}
         nodeTypes={nodeTypes}

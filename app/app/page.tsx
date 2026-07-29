@@ -1,13 +1,6 @@
-"use client";
-import '@xyflow/react/dist/style.css';
 import React from 'react';
-import { ReactFlowProvider } from '@xyflow/react';
-import { AppShell } from '@/components/AppShell';
+import { AppDashboard } from '@/components/AppDashboard';
 
-export default function CanvasApp() {
-  return (
-    <ReactFlowProvider>
-      <AppShell />
-    </ReactFlowProvider>);
-
+export default function DashboardPage() {
+  return <AppDashboard />;
 }
