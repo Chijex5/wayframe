@@ -1,4 +1,11 @@
-import { defaultEdgeOptions, generationPayload } from "./flowPayload";
+// data/mockProjects.ts
+//
+// Shared client-side project shapes. The mock seed data that once lived here was
+// retired in Phase 4 when projects moved to the database (see lib/api/projectsActions
+// and store/useProjectsStore). These type declarations stay because the canvas
+// engine, thumbnail, and command bar reference them as the app's project/message
+// shape — independent of where the data now comes from.
+
 import type { ScreenNodeType } from "../types/flow";
 import type { Edge } from "@xyflow/react";
 
@@ -9,6 +16,7 @@ export type ChatMessage = {
   createdAt: string;
 };
 
+/** A project as the UI consumes it (mirrors lib/api ProjectSummary). */
 export type MockProject = {
   id: string;
   name: string;
@@ -17,57 +25,3 @@ export type MockProject = {
   edges: Edge[];
   chatMessages: ChatMessage[];
 };
-
-const mockEdges: Edge[] = generationPayload.edges.map((edge) => ({
-  ...edge,
-  ...defaultEdgeOptions,
-}));
-
-export const mockProjects: MockProject[] = [
-  {
-    id: "commerce-flow",
-    name: "E-commerce Flow",
-    updatedAt: "2026-07-29T08:42:00Z",
-    nodes: generationPayload.nodes,
-    edges: mockEdges,
-    chatMessages: [],
-  },
-  {
-    id: "onboarding-flow",
-    name: "Onboarding Flow",
-    updatedAt: "2026-07-28T16:11:09Z",
-    nodes: generationPayload.nodes.map((node, index) => ({
-      ...node,
-      id: `${node.id}-onboarding`,
-      position: { x: node.position.x, y: node.position.y + (index % 2) * 36 },
-    })),
-    edges: mockEdges.map((edge) => ({
-      ...edge,
-      id: `${edge.id}-onboarding`,
-      source: `${edge.source}-onboarding`,
-      target: `${edge.target}-onboarding`,
-    })),
-    chatMessages: [],
-  },
-  {
-    id: "saas-dashboard",
-    name: "SaaS Dashboard Flow",
-    updatedAt: "2026-07-27T11:05:00Z",
-    nodes: generationPayload.nodes.map((node, index) => ({
-      ...node,
-      id: `${node.id}-saas`,
-      position: { x: node.position.x, y: node.position.y - (index % 3) * 28 },
-    })),
-    edges: mockEdges.map((edge) => ({
-      ...edge,
-      id: `${edge.id}-saas`,
-      source: `${edge.source}-saas`,
-      target: `${edge.target}-saas`,
-    })),
-    chatMessages: [],
-  },
-];
-
-export function getMockProject(id: string): MockProject | null {
-  return mockProjects.find((project) => project.id === id) ?? null;
-}

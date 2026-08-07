@@ -98,3 +98,20 @@ export type ProjectPatch = Partial<
 >;
 
 export type { FlowVersion };
+
+// ── Server-action results ─────────────────────────────────────────────────
+// Discriminated result the persistence server actions return. Lives here (not
+// in the "use server" module) because a "use server" file may only export async
+// functions — types must be declared in a plain module and imported.
+
+export type ActionResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: string };
+
+/** Fields the client supplies when appending a version row. */
+export type PersistVersionInput = {
+  label: string;
+  summary: string;
+  source: FlowVersion["source"];
+  snapshot?: FlowVersion["snapshot"];
+};

@@ -9,7 +9,7 @@ import { VersionHistoryPanel } from './VersionHistoryPanel';
 import { SuggestionsPanel } from './SuggestionsPanel';
 import { FlowCanvas } from './canvas/FlowCanvas';
 import { useFlowEngine } from '../hooks/useFlowEngine';
-import type { ScreenNodeType } from '../types/flow';
+import type { ScreenNodeType, FlowVersion } from '../types/flow';
 import type { ChatMessage } from '../data/mockProjects';
 import type { ProjectSyncPatch } from '../store/useProjectsStore';
 
@@ -19,6 +19,7 @@ type AppShellProps = {
   initialNodes?: ScreenNodeType[];
   initialEdges?: Edge[];
   initialChatMessages?: ChatMessage[];
+  initialVersions?: FlowVersion[];
   onSync?: (patch: ProjectSyncPatch) => void;
 };
 
@@ -47,6 +48,7 @@ export function AppShell({
   initialNodes,
   initialEdges,
   initialChatMessages,
+  initialVersions,
   onSync
 }: AppShellProps) {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -55,10 +57,12 @@ export function AppShell({
   const [isExportingPng, setIsExportingPng] = useState(false);
   const canvasCaptureRef = useRef<HTMLDivElement>(null);
   const engine = useFlowEngine({
+    projectId,
     initialProjectName,
     initialNodes,
     initialEdges,
     initialChatMessages,
+    initialVersions,
     onSync
   });
 

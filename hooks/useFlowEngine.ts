@@ -26,6 +26,8 @@ import {
   InvalidToolCallError,
   validateToolCalls,
 } from "@/lib/flow/validateToolCalls";
+import { sanitizeNodes } from "@/lib/flow/sanitizeNodes";
+import { persistVersion } from "@/lib/api/projectsActions";
 import { useMockStream } from "./useMockStream";
 import type { ChatMessage } from "../data/mockProjects";
 import type { ProjectSyncPatch } from "../store/useProjectsStore";
@@ -37,12 +39,11 @@ function toEdge(edge: GeneratedEdge): Edge {
   return { ...edge, ...defaultEdgeOptions };
 }
 
+// Versions store an ISO timestamp so an optimistically-logged version and one
+// reloaded from the DB (flow_versions.timestamp, mapped to ISO) share one format;
+// VersionHistoryPanel formats it for display.
 function timestamp(): string {
-  return new Date().toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return new Date().toISOString();
 }
 
 type Graph = { nodes: ScreenNodeType[]; edges: Edge[] };
@@ -50,18 +51,12 @@ type Graph = { nodes: ScreenNodeType[]; edges: Edge[] };
 /**
  * Deep-copies the graph into a version snapshot, dropping transient UI fields
  * (selection, hover flags, delete callbacks) so a restore replays clean state.
+ * Node cleaning is shared with the server-side persistence strip via
+ * `sanitizeNodes` so both paths drop the exact same transient fields.
  */
 function toSnapshot(nodes: ScreenNodeType[], edges: Edge[]): FlowSnapshot {
   return {
-    nodes: nodes.map((node) => ({
-      ...node,
-      selected: false,
-      data: {
-        label: node.data.label,
-        screenId: node.data.screenId,
-        category: node.data.category,
-      },
-    })),
+    nodes: sanitizeNodes(nodes),
     edges: edges.map((edge) => ({ ...edge, selected: false })),
   };
 }
@@ -115,15 +110,17 @@ function applyCallToGraph(graph: Graph, call: FlowToolCall): Graph {
 }
 
 type UseFlowEngineOptions = {
+  projectId?: string;
   initialProjectName?: string;
   initialNodes?: ScreenNodeType[];
   initialEdges?: Edge[];
   initialChatMessages?: ChatMessage[];
+  initialVersions?: FlowVersion[];
   onSync?: (patch: ProjectSyncPatch) => void;
 };
 
 export function useFlowEngine(options: UseFlowEngineOptions = {}) {
-  const { onSync } = options;
+  const { onSync, projectId } = options;
   const { fitView, screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<ScreenNodeType>(
     options.initialNodes ?? [],
@@ -131,7 +128,9 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(
     options.initialEdges ?? [],
   );
-  const [versions, setVersions] = useState<FlowVersion[]>([]);
+  const [versions, setVersions] = useState<FlowVersion[]>(
+    options.initialVersions ?? [],
+  );
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -153,7 +152,9 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   const lastInstructionRef = useRef<string | null>(null);
   const runCompletenessCheckRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<number | null>(null);
-  const versionCountRef = useRef(0);
+  // Seed from loaded versions so labels stay stable and monotonic across reloads
+  // (loaded rows are v0.1..v0.N; the next logged version continues at v0.N+1).
+  const versionCountRef = useRef(options.initialVersions?.length ?? 0);
   const lastSyncRef = useRef<string | null>(null);
 
   const reply = useMockStream({ intervalMs: 35, chunkSize: 3 });
@@ -229,19 +230,37 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   const logVersion = useCallback(
     (summary: string, source: FlowVersion["source"], snapshot: FlowSnapshot) => {
       versionCountRef.current += 1;
+      const count = versionCountRef.current;
+      const label = `v0.${count}`;
+      // Optimistic temp id; reconciled with the DB row id after persistence.
+      const tempId = `tmp_v_${count}`;
       setVersions((current) => [
-        {
-          id: `v_${String(versionCountRef.current).padStart(4, "0")}`,
-          label: `v0.${versionCountRef.current}`,
-          summary,
-          timestamp: timestamp(),
-          source,
-          snapshot,
-        },
+        { id: tempId, label, summary, timestamp: timestamp(), source, snapshot },
         ...current,
       ]);
+
+      // Write-through. Without a projectId (e.g. an unsaved/preview surface) the
+      // version stays in-memory only. The flow graph is synced separately via
+      // onSync and is the source of truth, so a failed version insert is
+      // non-fatal: keep the optimistic row and warn — it can be re-logged.
+      if (!projectId) return;
+      void persistVersion(projectId, { label, summary, source, snapshot }).then(
+        (result) => {
+          if (!result.ok) {
+            console.warn(`Version not persisted: ${result.error}`);
+            return;
+          }
+          setVersions((current) =>
+            current.map((version) =>
+              version.id === tempId
+                ? { ...version, id: result.data.id }
+                : version,
+            ),
+          );
+        },
+      );
     },
-    [],
+    [projectId],
   );
 
   /**

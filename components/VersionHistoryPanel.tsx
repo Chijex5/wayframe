@@ -24,6 +24,18 @@ const sourceIcon = {
   restore: RotateCcwIcon,
 };
 
+// Versions carry an ISO timestamp (optimistic + reloaded rows share the format);
+// show wall-clock HH:MM. Falls back to the raw value if it isn't parseable.
+function formatVersionTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 export function VersionHistoryPanel({
   isOpen,
   onClose,
@@ -148,7 +160,7 @@ export function VersionHistoryPanel({
                           {version.label}
                         </span>
                         <span className="ml-auto font-mono text-[11px] text-text-secondary">
-                          {version.timestamp}
+                          {formatVersionTime(version.timestamp)}
                         </span>
                       </span>
                       <span className="text-sm leading-snug text-text-secondary">

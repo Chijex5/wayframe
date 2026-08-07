@@ -1,10 +1,10 @@
 // components/AppDashboard.tsx
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BoxesIcon, GitBranchIcon, LayersIcon, PlusIcon, SparklesIcon } from "lucide-react";
+import { BoxesIcon, GitBranchIcon, LayersIcon, PlusIcon, SparklesIcon, Trash2Icon } from "lucide-react";
 import { AppHeader } from "./AppHeader";
 import { ProjectThumb } from "./ProjectThumb";
 import { useProjectsStore } from "@/store/useProjectsStore";
@@ -22,13 +22,33 @@ function formatEdited(value: string) {
 export function AppDashboard() {
   const router = useRouter();
   const projects = useProjectsStore((s) => s.projects);
+  const status = useProjectsStore((s) => s.status);
+  const hydrate = useProjectsStore((s) => s.hydrate);
   const createProject = useProjectsStore((s) => s.createProject);
+  const deleteProject = useProjectsStore((s) => s.deleteProject);
   const totalNodes = projects.reduce((sum, project) => sum + project.nodes.length, 0);
   const totalEdges = projects.reduce((sum, project) => sum + project.edges.length, 0);
+  const isReady = status === "ready";
 
-  const handleCreate = () => {
-    const id = createProject();
-    router.push(`/app/c/${id}`);
+  useEffect(() => {
+    void hydrate();
+  }, [hydrate]);
+
+  const handleCreate = async () => {
+    const id = await createProject();
+    if (id) router.push(`/app/c/${id}`);
+  };
+
+  const handleDelete = async (
+    event: React.MouseEvent,
+    id: string,
+    name: string,
+  ) => {
+    // The card is a Link; stop the click from navigating into the project.
+    event.preventDefault();
+    event.stopPropagation();
+    if (!window.confirm(`Delete "${name}"? This can't be undone.`)) return;
+    await deleteProject(id);
   };
 
   return (
@@ -92,7 +112,16 @@ export function AppDashboard() {
           </div>
         </section>
 
-        {projects.length === 0 ? (
+        {!isReady ? (
+          <section
+            className="grid min-h-[360px] place-items-center border border-dashed border-border bg-surface"
+            aria-label="Loading projects"
+          >
+            <span className="font-mono text-xs text-text-secondary">
+              {status === "error" ? "Couldn't load projects." : "Loading projects…"}
+            </span>
+          </section>
+        ) : projects.length === 0 ? (
           <section className="grid min-h-[360px] border border-dashed border-border bg-surface md:grid-cols-[1fr_1.2fr]">
             <div className="flex flex-col justify-between border-b border-border p-5 md:border-b-0 md:border-r">
               <div>
@@ -163,8 +192,20 @@ export function AppDashboard() {
                         <span className="border border-border bg-bg px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-text-secondary">
                           {isDraft ? "draft" : "v0.1"}
                         </span>
-                        <span className="font-mono text-[10px] uppercase tracking-wide text-text-secondary transition-colors group-hover:text-accent">
-                          Open
+                        <span className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(event) =>
+                              handleDelete(event, project.id, project.name)
+                            }
+                            aria-label={`Delete ${project.name}`}
+                            className="inline-flex h-6 w-6 items-center justify-center border border-transparent text-text-secondary transition-colors hover:border-danger/40 hover:bg-danger/10 hover:text-danger"
+                          >
+                            <Trash2Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                          <span className="font-mono text-[10px] uppercase tracking-wide text-text-secondary transition-colors group-hover:text-accent">
+                            Open
+                          </span>
                         </span>
                       </div>
                       <h2 className="truncate text-sm font-bold leading-tight text-text-primary">
