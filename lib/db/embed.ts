@@ -11,6 +11,13 @@
 //
 // Idempotent: only NULL-embedding rows are selected, so re-running after adding
 // new patterns embeds just the new ones — already-embedded rows are untouched.
+//
+// Batched + paced: rows are embedded and written to the DB in small batches
+// (default 20) with a delay between batches, to stay under the Gemini free-tier
+// quota (100 embed requests/min). Each batch is written to the DB immediately
+// after its embed call succeeds, so a later quota/network failure only loses
+// the *current* batch's progress, not everything — just re-run the script and
+// it picks up wherever it left off, since already-embedded rows are skipped.
 
 import "./load-env";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
@@ -28,6 +35,23 @@ import {
 
 const db = drizzle({ client: neon(env.DATABASE_URL), schema });
 
+// Tune these if you keep hitting quota errors, or raise BATCH_SIZE if you're
+// on a paid Gemini tier with a higher rate limit.
+const BATCH_SIZE = 20;
+const DELAY_BETWEEN_BATCHES_MS = 20_000; // 20s -> well under 100 req/min
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    out.push(arr.slice(i, i + size));
+  }
+  return out;
+}
+
 async function embed() {
   const google = createGoogleGenerativeAI({ apiKey: env.GOOGLE_API_KEY });
 
@@ -44,30 +68,63 @@ async function embed() {
     return;
   }
 
-  // One batched call; embedMany preserves order and auto-splits if the provider
-  // caps batch size. Document taskType pairs with the query side at check time.
-  const { embeddings } = await embedMany({
-    model: google.textEmbedding(EMBEDDING_MODEL),
-    values: rows.map((row) => row.content),
-    providerOptions: {
-      google: {
-        outputDimensionality: EMBEDDING_DIMENSIONS,
-        taskType: TASK_TYPE_DOCUMENT,
-      },
-    },
-  });
+  const batches = chunk(rows, BATCH_SIZE);
+  console.log(
+    `Embedding ${rows.length} pattern_chunk(s) in ${batches.length} batch(es) of up to ${BATCH_SIZE}...`,
+  );
 
-  // neon-http has no multi-statement transaction; update row-by-row. A partial
-  // failure just leaves some rows NULL, which the next run picks up (idempotent).
-  for (let i = 0; i < rows.length; i += 1) {
-    await db
-      .update(schema.patternChunks)
-      .set({ embedding: embeddings[i] })
-      .where(eq(schema.patternChunks.id, rows[i].id));
+  let embeddedCount = 0;
+
+  for (let b = 0; b < batches.length; b += 1) {
+    const batch = batches[b];
+    console.log(`Batch ${b + 1}/${batches.length} (${batch.length} rows)...`);
+
+    let embeddings: number[][];
+    try {
+      const result = await embedMany({
+        model: google.textEmbedding(EMBEDDING_MODEL),
+        values: batch.map((row) => row.content),
+        providerOptions: {
+          google: {
+            outputDimensionality: EMBEDDING_DIMENSIONS,
+            taskType: TASK_TYPE_DOCUMENT,
+          },
+        },
+      });
+      embeddings = result.embeddings;
+    } catch (error) {
+      console.error(
+        `Batch ${b + 1} failed — stopping here. ${embeddedCount} row(s) were already saved before this batch and will be skipped on the next run.`,
+      );
+      console.error(error);
+      // Re-throw so the outer .catch() logs it and exits non-zero, but
+      // everything embedded so far is already committed to the DB (each
+      // batch is written immediately below, not buffered till the end).
+      throw error;
+    }
+
+    // neon-http has no multi-statement transaction; update row-by-row. Written
+    // immediately after this batch succeeds, so progress survives a later
+    // batch failing (e.g. rate limit) — re-running the script just picks up
+    // the remaining NULL rows.
+    for (let i = 0; i < batch.length; i += 1) {
+      await db
+        .update(schema.patternChunks)
+        .set({ embedding: embeddings[i] })
+        .where(eq(schema.patternChunks.id, batch[i].id));
+    }
+
+    embeddedCount += batch.length;
+    console.log(`  -> saved (${embeddedCount}/${rows.length} total so far)`);
+
+    const isLastBatch = b === batches.length - 1;
+    if (!isLastBatch) {
+      await sleep(DELAY_BETWEEN_BATCHES_MS);
+    }
   }
 
   console.log(
-    `Embedded ${rows.length} pattern_chunk(s) at ${EMBEDDING_DIMENSIONS} dims.`,
+    `Embedded ${embeddedCount} pattern_chunk(s) at ${EMBEDDING_DIMENSIONS} dims.`,
   );
 }
 

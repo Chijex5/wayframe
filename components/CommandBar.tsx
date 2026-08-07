@@ -69,7 +69,13 @@ export function CommandBar({
     ];
   }, [chatMessages, isReplyStreaming, replyText]);
 
-  const latestMessage = visibleMessages[visibleMessages.length - 1] ?? null;
+  const busyStatus = isRetrying
+    ? "retrying"
+    : isGenerating
+      ? "generating flow"
+      : isBusy
+        ? "working"
+        : null;
 
   // Check-scope failures surface in the SuggestionsPanel; the bar only owns
   // generate/edit errors so the two don't render the same message twice.
@@ -79,7 +85,7 @@ export function CommandBar({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 72)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [value]);
 
   useEffect(() => {
@@ -119,41 +125,51 @@ export function CommandBar({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 8 }}
               transition={{ duration: 0.16, ease: "easeOut" }}
-              className="border border-border bg-surface shadow-none"
+              className="overflow-hidden border border-border bg-surface shadow-[0_2px_24px_rgba(0,0,0,0.35)]"
             >
               <div className="flex items-center justify-between border-b border-border bg-bg px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <MessageSquareIcon className="h-3.5 w-3.5 text-accent" aria-hidden="true" />
-                  <span className="font-mono text-xs uppercase tracking-wide text-text-primary">
-                    Chat history
-                  </span>
-                </div>
-                <span className="font-mono text-[11px] text-text-secondary">
-                  {visibleMessages.length} messages
+                <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-text-secondary">
+                  Conversation
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setIsChatOpen(false)}
+                  aria-label="Collapse conversation"
+                  className="flex h-5 w-5 items-center justify-center text-text-secondary transition-colors hover:text-text-primary"
+                >
+                  <XIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
               </div>
 
-              <div ref={transcriptRef} className="max-h-[260px] overflow-y-auto p-2">
-                <div className="flex flex-col gap-2">
+              <div ref={transcriptRef} className="max-h-[320px] overflow-y-auto px-4 py-4">
+                <div className="flex flex-col gap-5">
                   {visibleMessages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={[
-                        "border px-3 py-2",
-                        message.role === "user"
-                          ? "border-accent/60 bg-bg"
-                          : "border-border bg-surface-raised",
-                      ].join(" ")}
-                    >
-                      <div className="mb-1 flex items-center justify-between gap-2">
-                        <span className="font-mono text-[10px] uppercase tracking-wide text-text-secondary">
+                    <div key={message.id} className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={[
+                            "font-mono text-[10px] font-semibold uppercase tracking-[0.14em]",
+                            message.role === "user"
+                              ? "text-accent"
+                              : message.role === "system"
+                                ? "text-text-secondary"
+                                : "text-text-primary",
+                          ].join(" ")}
+                        >
                           {roleLabel(message.role)}
                         </span>
                         <span className="font-mono text-[10px] text-text-secondary">
                           {formatTime(message.createdAt)}
                         </span>
                       </div>
-                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-primary">
+                      <p
+                        className={[
+                          "whitespace-pre-wrap text-sm leading-relaxed",
+                          message.role === "system"
+                            ? "text-text-secondary"
+                            : "text-text-primary",
+                        ].join(" ")}
+                      >
                         {message.text}
                         {message.id === "streaming_reply" && (
                           <span className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-pulse bg-accent" />
@@ -167,34 +183,7 @@ export function CommandBar({
           )}
         </AnimatePresence>
 
-        <div className="border border-border bg-surface">
-          <div className="flex items-center justify-between gap-3 border-b border-border bg-bg px-2.5 py-1.5">
-            <button
-              type="button"
-              onClick={() => setIsChatOpen((open) => !open)}
-              disabled={visibleMessages.length === 0}
-              className="inline-flex h-7 items-center gap-2 font-mono text-xs text-text-secondary transition-colors hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <MessageSquareIcon className="h-3.5 w-3.5" aria-hidden="true" />
-              Chat
-              <span className="border border-border bg-surface px-1.5 py-0.5 text-[10px] leading-none">
-                {visibleMessages.length}
-              </span>
-              <ChevronDownIcon
-                className={`h-3 w-3 transition-transform ${isChatOpen ? "rotate-180" : ""}`}
-                aria-hidden="true"
-              />
-            </button>
-
-            <p className="min-w-0 flex-1 truncate text-right font-mono text-[11px] text-text-secondary">
-              {isRetrying
-                ? "still working - retrying"
-                : isGenerating
-                  ? "generating flow - streaming screens"
-                  : latestMessage?.text ?? "describe your app or next edit"}
-            </p>
-          </div>
-
+        <div className="border border-border bg-surface shadow-[0_2px_24px_rgba(0,0,0,0.35)]">
           {barError && (
             <div
               role="alert"
@@ -229,7 +218,7 @@ export function CommandBar({
             </div>
           )}
 
-          <div className="flex items-end gap-2 p-2">
+          <div className="px-3 pt-3">
             <label className="sr-only" htmlFor="wayframe-command-input">
               Describe your app or a change to the flow
             </label>
@@ -241,48 +230,78 @@ export function CommandBar({
               disabled={isBusy}
               onChange={(event) => setValue(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Describe a change... e.g. add a payment step after cart"
-              className="max-h-[72px] flex-1 resize-none bg-transparent px-1 py-1 text-sm leading-relaxed text-text-primary placeholder:text-text-secondary focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              placeholder="Describe your app, or a change... e.g. add a payment step after cart"
+              className="block max-h-[140px] w-full resize-none bg-transparent text-sm leading-relaxed text-text-primary placeholder:text-text-secondary focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
             />
+          </div>
 
-            {isBusy ? (
-              <div
-                className="flex h-7 w-7 shrink-0 items-center justify-center"
-                aria-label="Working"
-                role="status"
-              >
-                <span className="flex items-center gap-1">
-                  {[0, 1, 2].map((index) => (
-                    <motion.span
-                      key={index}
-                      className="h-1 w-1 bg-text-secondary"
-                      animate={{ opacity: [0.25, 1, 0.25] }}
-                      transition={{
-                        duration: 0.9,
-                        repeat: Infinity,
-                        ease: "easeInOut",
-                        delay: index * 0.15,
-                      }}
-                    />
-                  ))}
+          <div className="flex items-center justify-between gap-2 px-2.5 pb-2 pt-1.5">
+            <button
+              type="button"
+              onClick={() => setIsChatOpen((open) => !open)}
+              disabled={visibleMessages.length === 0}
+              aria-expanded={isChatOpen}
+              className="inline-flex h-7 items-center gap-1.5 px-1 font-mono text-[11px] text-text-secondary transition-colors hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <MessageSquareIcon className="h-3.5 w-3.5" aria-hidden="true" />
+              Chat
+              {visibleMessages.length > 0 && (
+                <span className="border border-border bg-bg px-1.5 py-0.5 text-[10px] leading-none">
+                  {visibleMessages.length}
                 </span>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={!hasText}
-                aria-label="Send instruction"
-                className={[
-                  "flex h-7 w-7 shrink-0 items-center justify-center border transition-colors",
-                  hasText
-                    ? "border-accent bg-accent text-white hover:opacity-90"
-                    : "cursor-not-allowed border-border bg-surface text-text-secondary",
-                ].join(" ")}
-              >
-                <ArrowUpIcon className="h-3.5 w-3.5" aria-hidden="true" />
-              </button>
-            )}
+              )}
+              <ChevronDownIcon
+                className={`h-3 w-3 transition-transform ${isChatOpen ? "rotate-180" : ""}`}
+                aria-hidden="true"
+              />
+            </button>
+
+            <div className="flex items-center gap-2.5">
+              {busyStatus && (
+                <span className="font-mono text-[11px] text-text-secondary">
+                  {busyStatus}
+                </span>
+              )}
+
+              {isBusy ? (
+                <div
+                  className="flex h-8 w-8 shrink-0 items-center justify-center"
+                  aria-label="Working"
+                  role="status"
+                >
+                  <span className="flex items-center gap-1">
+                    {[0, 1, 2].map((index) => (
+                      <motion.span
+                        key={index}
+                        className="h-1 w-1 bg-text-secondary"
+                        animate={{ opacity: [0.25, 1, 0.25] }}
+                        transition={{
+                          duration: 0.9,
+                          repeat: Infinity,
+                          ease: "easeInOut",
+                          delay: index * 0.15,
+                        }}
+                      />
+                    ))}
+                  </span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={!hasText}
+                  aria-label="Send instruction"
+                  className={[
+                    "flex h-8 w-8 shrink-0 items-center justify-center border transition-colors",
+                    hasText
+                      ? "border-accent bg-accent text-white hover:opacity-90"
+                      : "cursor-not-allowed border-border bg-surface text-text-secondary",
+                  ].join(" ")}
+                >
+                  <ArrowUpIcon className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

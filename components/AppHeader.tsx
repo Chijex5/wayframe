@@ -3,10 +3,9 @@
 
 import React, { useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   ChevronDownIcon,
-  LayoutDashboardIcon,
   LogOutIcon,
   SettingsIcon,
   UserIcon,
@@ -31,7 +30,6 @@ type AppHeaderProps =
 
 export function AppHeader(props: AppHeaderProps) {
   const { theme, toggleTheme } = useTheme();
-  const pathname = usePathname();
   const router = useRouter();
   const { session, status, signOut } = useSession();
   const projects = useProjectsStore((s) => s.projects);
@@ -39,8 +37,6 @@ export function AppHeader(props: AppHeaderProps) {
   const [isProjectOpen, setIsProjectOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const projectMenuRef = useRef<HTMLDivElement>(null);
-  const isDashboardActive = pathname === "/app";
-  const isSettingsActive = pathname.startsWith("/app/settings");
   const recentProjects = [...projects]
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
     .slice(0, 6);
@@ -155,33 +151,6 @@ export function AppHeader(props: AppHeaderProps) {
       </div>
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        <nav className="hidden items-center gap-1 md:flex" aria-label="App navigation">
-          <Link
-            href="/app"
-            className={[
-              "inline-flex h-8 items-center gap-2 border px-2.5 font-mono text-xs transition-colors",
-              isDashboardActive
-                ? "border-accent bg-surface-raised text-accent"
-                : "border-border bg-surface text-text-secondary hover:bg-surface-raised hover:text-text-primary",
-            ].join(" ")}
-          >
-            <LayoutDashboardIcon className="h-3.5 w-3.5" aria-hidden="true" />
-            Dashboard
-          </Link>
-          <Link
-            href="/app/settings/profile"
-            className={[
-              "inline-flex h-8 items-center gap-2 border px-2.5 font-mono text-xs transition-colors",
-              isSettingsActive
-                ? "border-accent bg-surface-raised text-accent"
-                : "border-border bg-surface text-text-secondary hover:bg-surface-raised hover:text-text-primary",
-            ].join(" ")}
-          >
-            <SettingsIcon className="h-3.5 w-3.5" aria-hidden="true" />
-            Settings
-          </Link>
-        </nav>
-
         {props.mode === "canvas" && (
           <>
             {props.rightSlot}

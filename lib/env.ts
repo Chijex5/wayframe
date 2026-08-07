@@ -11,6 +11,8 @@
 // GOOGLE_API_KEY (Phase 5) is deliberately unprefixed (never NEXT_PUBLIC_), so it
 // is readable only in the server-only /api/generate route and Next refuses to
 // inline it into the client bundle — the Gemini key never reaches the browser.
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
 
 function required(name: string): string {
   const value = process.env[name];
