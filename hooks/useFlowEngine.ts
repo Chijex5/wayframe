@@ -554,7 +554,12 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
     (suggestion: FlowSuggestion) => {
       if (isGenerating || mutationRef.current) return;
       const current = nodesRef.current;
-      const anchor = current[current.length - 1];
+      // Attach to the logical parent the check named; fall back to the last node
+      // only when no anchor was resolved (e.g. an older suggestion without one).
+      const anchor =
+        (suggestion.anchorId &&
+          current.find((node) => node.id === suggestion.anchorId)) ||
+        current[current.length - 1];
       const id = `${suggestion.screenId}_${current.length + 1}`;
 
       const calls: FlowToolCall[] = [

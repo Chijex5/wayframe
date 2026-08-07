@@ -42,6 +42,12 @@ const suggestionSchema = z.object({
     .describe(
       "Node category for the suggested screen: core (home, feed, detail, profile, search, settings), commerce (cart, checkout, payment, orders), or auth (sign in, onboarding, account).",
     ),
+  anchorId: z
+    .string()
+    .min(1)
+    .describe(
+      "The exact id (copied verbatim from the 'Screens already in the flow' list) of the existing screen this new screen should connect FROM — the screen a user is on right before navigating to it. Pick the single most logical predecessor.",
+    ),
 });
 
 /** Structured output shape Gemini must return for a completeness check. */
@@ -63,6 +69,16 @@ export function buildQueryText(nodes: FlowNode[]): string {
   return `An app with these screens: ${labels}.`;
 }
 
+/**
+ * Lists the flow's current screens by id + label so the model can name a valid
+ * `anchorId` for each suggestion. Ids are the graph's real node ids — the same
+ * ids `approveSuggestion` resolves against — so an echoed id connects to the
+ * right node.
+ */
+export function formatPresentScreens(nodes: FlowNode[]): string {
+  return nodes.map((node) => `- ${node.id} "${node.data.label}"`).join("\n");
+}
+
 /** Renders retrieved candidates into the prompt's numbered candidate list. */
 export function formatCandidates(patterns: RetrievedPattern[]): string {
   return patterns
@@ -82,6 +98,7 @@ export function formatCandidates(patterns: RetrievedPattern[]): string {
 export function buildCheckResult(
   output: CompletenessOutput,
   presentScreenIds: Set<string>,
+  presentNodeIds: Set<string>,
 ): CompletenessCheckResult {
   const seen = new Set<string>();
   const suggestions: FlowSuggestion[] = [];
@@ -93,12 +110,16 @@ export function buildCheckResult(
     // Skip screens already in the flow, and de-dupe repeats within the batch.
     if (presentScreenIds.has(screenId) || seen.has(screenId)) continue;
     seen.add(screenId);
+    // Keep the anchor only if it names a real present node; otherwise drop it
+    // and let approval fall back to attaching at the end of the flow.
+    const anchorId = item.anchorId?.trim();
     suggestions.push({
       id: `sug_${screenId.replace(/^scr_/, "")}`,
       title,
       rationale: item.rationale.trim(),
       screenId,
       category: item.category,
+      anchorId: anchorId && presentNodeIds.has(anchorId) ? anchorId : undefined,
     });
   }
 

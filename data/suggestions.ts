@@ -6,6 +6,13 @@ export type FlowSuggestion = {
   rationale: string;
   screenId: string;
   category: ScreenCategory;
+  /**
+   * Id of the existing screen this suggestion should connect FROM — its logical
+   * predecessor in the flow. Set by the completeness check when the model names
+   * a valid anchor; absent when unknown, in which case approval falls back to
+   * attaching at the end of the flow.
+   */
+  anchorId?: string;
 };
 
 export type SeedSuggestion = {

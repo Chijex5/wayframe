@@ -26,6 +26,7 @@ import {
   buildQueryText,
   completenessSchema,
   formatCandidates,
+  formatPresentScreens,
 } from "./completenessCheck";
 
 // Gemini free-tier flash model — matches generation/editing (PRD §4).
@@ -38,7 +39,8 @@ Rules:
 - Choose suggestions strictly from the candidate patterns provided. Do not invent screens outside that list.
 - Prefer a small, high-value set (0-5). If the flow already looks complete, return an empty list — do not pad.
 - Write each rationale specifically for THIS flow, referencing what it has and what the gap enables. Avoid generic filler.
-- Assign each suggestion a node category: "auth", "commerce", or "core".`;
+- Assign each suggestion a node category: "auth", "commerce", or "core".
+- For each suggestion, set "anchorId" to the id of the existing screen it should connect FROM — the screen a user would be on immediately before navigating to the new one. Copy the id verbatim from the "Screens already in the flow" list; never invent an id.`;
 
 /**
  * Runs the RAG completeness check: embed → retrieve → curate. Returns
@@ -70,9 +72,7 @@ export async function runCompletenessCheck(
   const candidates = await retrievePatterns(embedding);
   if (candidates.length === 0) return { suggestions: [] };
 
-  const present = request.nodes
-    .map((node) => `- ${node.data.label}`)
-    .join("\n");
+  const present = formatPresentScreens(request.nodes);
 
   const { object } = await generateObject({
     model: google(GEMINI_MODEL),
@@ -80,11 +80,12 @@ export async function runCompletenessCheck(
     schemaName: "CompletenessCheck",
     schemaDescription: "Screens missing from the flow, chosen from the candidates.",
     system: SYSTEM_PROMPT,
-    prompt: `Screens already in the flow:\n${present}\n\nCandidate patterns to choose from:\n${formatCandidates(candidates)}`,
+    prompt: `Screens already in the flow (id "label"):\n${present}\n\nCandidate patterns to choose from:\n${formatCandidates(candidates)}`,
   });
 
   const presentScreenIds = new Set(
     request.nodes.map((node) => node.data.screenId),
   );
-  return buildCheckResult(object, presentScreenIds);
+  const presentNodeIds = new Set(request.nodes.map((node) => node.id));
+  return buildCheckResult(object, presentScreenIds, presentNodeIds);
 }
