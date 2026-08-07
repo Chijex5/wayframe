@@ -211,7 +211,9 @@ export function AppShell({
         <VersionHistoryPanel
           isOpen={isHistoryOpen}
           onClose={() => setIsHistoryOpen(false)}
-          versions={engine.versions} />
+          versions={engine.versions}
+          onRestore={engine.restoreVersion}
+        />
         
         <SuggestionsPanel
           isOpen={isCheckOpen}

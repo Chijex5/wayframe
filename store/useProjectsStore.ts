@@ -1,34 +1,24 @@
 // store/useProjectsStore.ts
 import { create } from "zustand";
-import type { MockProject } from "@/data/mockProjects";
-import { mockProjects } from "@/data/mockProjects";
+import { makeProject, seedProjects } from "@/lib/api/projectsRepository";
+import type { ProjectPatch, ProjectSummary } from "@/lib/api";
 
-export type ProjectSyncPatch = Partial<
-  Pick<MockProject, "name" | "nodes" | "edges" | "chatMessages">
->;
+export type ProjectSyncPatch = ProjectPatch;
 
 type ProjectsStore = {
-  projects: MockProject[];
+  projects: ProjectSummary[];
   createProject: () => string;
   updateProject: (id: string, patch: ProjectSyncPatch) => void;
-  getProject: (id: string) => MockProject | undefined;
+  getProject: (id: string) => ProjectSummary | undefined;
 };
 
 export const useProjectsStore = create<ProjectsStore>((set, get) => ({
-  projects: mockProjects,
+  projects: seedProjects(),
 
   createProject: () => {
-    const id = crypto.randomUUID();
-    const project: MockProject = {
-      id,
-      name: "Untitled Project",
-      nodes: [],
-      edges: [],
-      chatMessages: [],
-      updatedAt: new Date().toISOString(),
-    };
-    set((s) => ({ projects: [project, ...s.projects] }));
-    return id;
+    const project = makeProject();
+    set((state) => ({ projects: [project, ...state.projects] }));
+    return project.id;
   },
 
   updateProject: (id, patch) =>

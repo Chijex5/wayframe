@@ -10,20 +10,22 @@ import {
 } from "@xyflow/react";
 import {
   defaultEdgeOptions,
-  describeToolCall,
-  generationPayload,
-  planToolCalls,
   type GeneratedEdge,
   type GenerationPayload,
 } from "../data/flowPayload";
-import type { FlowToolCall, FlowVersion, ScreenNodeType } from "../types/flow";
-import { mockSuggestions, type FlowSuggestion } from "../data/suggestions";
+import type {
+  FlowSnapshot,
+  FlowToolCall,
+  FlowVersion,
+  ScreenNodeType,
+} from "../types/flow";
+import type { FlowSuggestion } from "../data/suggestions";
+import { checkCompleteness, editFlow, generateFlow } from "@/lib/api";
 import { useMockStream } from "./useMockStream";
 import type { ChatMessage } from "../data/mockProjects";
 import type { ProjectSyncPatch } from "../store/useProjectsStore";
 
 const STREAM_TICK_MS = 350;
-const CHECK_DURATION_MS = 1800;
 const UNTITLED_PROJECT = "Untitled Project";
 
 function toEdge(edge: GeneratedEdge): Edge {
@@ -38,47 +40,73 @@ function timestamp(): string {
   });
 }
 
-function deriveProjectName(description: string): string {
-  const text = description.toLowerCase();
+type Graph = { nodes: ScreenNodeType[]; edges: Edge[] };
 
-  if (text.match(/\b(e-?commerce|shop|store|cart|checkout|product)\b/)) {
-    return "E-commerce Flow";
+/**
+ * Deep-copies the graph into a version snapshot, dropping transient UI fields
+ * (selection, hover flags, delete callbacks) so a restore replays clean state.
+ */
+function toSnapshot(nodes: ScreenNodeType[], edges: Edge[]): FlowSnapshot {
+  return {
+    nodes: nodes.map((node) => ({
+      ...node,
+      selected: false,
+      data: {
+        label: node.data.label,
+        screenId: node.data.screenId,
+        category: node.data.category,
+      },
+    })),
+    edges: edges.map((edge) => ({ ...edge, selected: false })),
+  };
+}
+
+/**
+ * Pure tool-call reducer: folds a call over a graph and returns the next graph
+ * without touching React state. Applying a batch to a local copy lets us commit
+ * atomically and capture a coherent snapshot at the call site — and is the same
+ * path a server-issued tool call will take in a later phase.
+ */
+function applyCallToGraph(graph: Graph, call: FlowToolCall): Graph {
+  switch (call.type) {
+    case "addNode": {
+      const { id, label, screenId, category, position } = call.payload;
+      return {
+        nodes: [
+          ...graph.nodes,
+          {
+            id,
+            type: "screen",
+            position,
+            selected: false,
+            data: { label, screenId, category },
+          },
+        ],
+        edges: graph.edges,
+      };
+    }
+    case "connect": {
+      const { source, target } = call.payload;
+      return {
+        nodes: graph.nodes,
+        edges: addEdge(
+          { id: `e-${source}-${target}`, source, target, ...defaultEdgeOptions },
+          graph.edges,
+        ),
+      };
+    }
+    case "renameNode": {
+      const { id, label } = call.payload;
+      return {
+        nodes: graph.nodes.map((node) =>
+          node.id === id ? { ...node, data: { ...node.data, label } } : node,
+        ),
+        edges: graph.edges,
+      };
+    }
+    default:
+      return graph;
   }
-  if (text.match(/\b(saas|dashboard|analytics|admin|report)\b/)) {
-    return "SaaS Dashboard Flow";
-  }
-  if (text.match(/\b(sign in|login|auth|onboarding|account)\b/)) {
-    return "Onboarding Flow";
-  }
-
-  const stopWords = new Set([
-    "a",
-    "an",
-    "and",
-    "app",
-    "build",
-    "create",
-    "for",
-    "flow",
-    "generate",
-    "make",
-    "of",
-    "the",
-    "to",
-    "with",
-  ]);
-
-  const words = description
-    .replace(/[^a-zA-Z0-9\s-]/g, " ")
-    .split(/\s+/)
-    .filter((word) => word.length > 2 && !stopWords.has(word.toLowerCase()))
-    .slice(0, 3);
-
-  if (words.length === 0) return "Generated Flow";
-
-  return `${words
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join(" ")} Flow`;
 }
 
 type UseFlowEngineOptions = {
@@ -111,8 +139,8 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   const [suggestions, setSuggestions] = useState<FlowSuggestion[]>([]);
 
   const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
   const timerRef = useRef<number | null>(null);
-  const checkTimerRef = useRef<number | null>(null);
   const versionCountRef = useRef(0);
   const lastSyncRef = useRef<string | null>(null);
 
@@ -140,18 +168,15 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
     }
   }, []);
 
-  useEffect(
-    () => () => {
-      clearTimer();
-      if (checkTimerRef.current !== null)
-        window.clearTimeout(checkTimerRef.current);
-    },
-    [clearTimer],
-  );
+  useEffect(() => clearTimer, [clearTimer]);
 
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
+
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
 
   useEffect(() => {
     if (!onSync) return;
@@ -190,7 +215,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   }, [frameView, options.initialNodes?.length]);
 
   const logVersion = useCallback(
-    (summary: string, source: FlowVersion["source"]) => {
+    (summary: string, source: FlowVersion["source"], snapshot: FlowSnapshot) => {
       versionCountRef.current += 1;
       setVersions((current) => [
         {
@@ -199,6 +224,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
           summary,
           timestamp: timestamp(),
           source,
+          snapshot,
         },
         ...current,
       ]);
@@ -210,14 +236,14 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
    * Single reveal function: consumes a { nodes, edges } payload and pushes items
    * into canvas state over time. A live streaming source (e.g. streamObject)
    * can replace the queue below without changing how items render on arrival.
+   * `isGenerating` and the "generating…" system message are set by the caller,
+   * since generation is now an awaited service call that may fail before reveal.
    */
   const streamFlowPayload = useCallback(
-    (payload: GenerationPayload, instruction: string) => {
+    (payload: GenerationPayload, generatedProjectName: string) => {
       clearTimer();
       setNodes([]);
       setEdges([]);
-      setIsGenerating(true);
-      appendChatMessage("system", "Generating flow - streaming screens onto canvas.");
 
       const pendingNodes = [...payload.nodes];
       const pendingEdges = [...payload.edges];
@@ -247,12 +273,15 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
         if (pendingNodes.length === 0 && pendingEdges.length === 0) {
           clearTimer();
           setIsGenerating(false);
-          const nextProjectName = deriveProjectName(instruction);
-          setProjectName(nextProjectName);
-          logVersion("Initial flow generated from description.", "chat");
+          setProjectName(generatedProjectName);
+          logVersion(
+            "Initial flow generated from description.",
+            "chat",
+            toSnapshot(payload.nodes, payload.edges.map(toEdge)),
+          );
           appendChatMessage(
             "assistant",
-            `Generated ${payload.nodes.length} screens and ${payload.edges.length} connections for ${nextProjectName}.`,
+            `Generated ${payload.nodes.length} screens and ${payload.edges.length} connections for ${generatedProjectName}.`,
           );
         }
       }, STREAM_TICK_MS);
@@ -260,83 +289,80 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
     [appendChatMessage, clearTimer, frameView, logVersion, setEdges, setNodes],
   );
 
-  /** Single reducer applying tool-call-shaped edits to canvas state. */
-  const applyToolCall = useCallback(
-    (call: FlowToolCall) => {
-      switch (call.type) {
-        case "addNode": {
-          const { id, label, screenId, category, position } = call.payload;
-          setNodes((current) => [
-            ...current,
-            {
-              id,
-              type: "screen",
-              position,
-              selected: false,
-              data: { label, screenId, category },
-            },
-          ]);
-          break;
-        }
-        case "connect": {
-          const { source, target } = call.payload;
-          setEdges((current) =>
-            addEdge(
-              {
-                id: `e-${source}-${target}`,
-                source,
-                target,
-                ...defaultEdgeOptions,
-              },
-              current,
-            ),
-          );
-          break;
-        }
-        case "renameNode": {
-          const { id, label } = call.payload;
-          setNodes((current) =>
-            current.map((node) =>
-              node.id === id
-                ? { ...node, data: { ...node.data, label } }
-                : node,
-            ),
-          );
-          break;
-        }
-        default:
-          break;
-      }
+  /**
+   * Applies a batch of tool calls atomically: folds them through the pure
+   * reducer over the current graph, commits the result in one state update, and
+   * returns a snapshot of the outcome so the caller can log a coherent version.
+   * Reads live graph state from refs so it is safe to call after an await.
+   */
+  const applyToolCalls = useCallback(
+    (calls: FlowToolCall[]): FlowSnapshot => {
+      const next = calls.reduce(applyCallToGraph, {
+        nodes: nodesRef.current,
+        edges: edgesRef.current,
+      });
+      const cleaned = toSnapshot(next.nodes, next.edges);
+      setNodes(cleaned.nodes);
+      setEdges(cleaned.edges);
+      return cleaned;
     },
     [setEdges, setNodes],
   );
 
   const submitInstruction = useCallback(
-    (instruction: string) => {
+    async (instruction: string) => {
       if (isGenerating) return;
       setPrompt(instruction);
       appendChatMessage("user", instruction);
 
       if (nodesRef.current.length === 0) {
         reply.reset();
-        streamFlowPayload(generationPayload, instruction);
+        setIsGenerating(true);
+        appendChatMessage(
+          "system",
+          "Generating flow - streaming screens onto canvas.",
+        );
+
+        try {
+          const result = await generateFlow({ description: instruction });
+          streamFlowPayload(result, result.projectName);
+        } catch {
+          setIsGenerating(false);
+          appendChatMessage(
+            "assistant",
+            "Flow generation failed. Your canvas was left unchanged.",
+          );
+        }
         return;
       }
 
-      const calls = planToolCalls(instruction, nodesRef.current);
-      const summaries = calls.map((call) =>
-        describeToolCall(call, nodesRef.current),
-      );
-      const assistantSummary = `Applied ${calls.length} change${calls.length > 1 ? "s" : ""}: ${summaries.join("; ")}.`;
-      calls.forEach(applyToolCall);
-      summaries.forEach((summary) => logVersion(`${summary}.`, "chat"));
-      frameView();
-      appendChatMessage("assistant", assistantSummary);
-      reply.start(assistantSummary);
+      try {
+        const result = await editFlow({
+          instruction,
+          nodes: nodesRef.current,
+          edges: edgesRef.current,
+        });
+        const snapshot = applyToolCalls(result.calls);
+        // One version per instruction: the batch of tool calls commits together,
+        // so a single snapshot represents this edit coherently.
+        logVersion(
+          result.summaries.join("; ") || "Applied edit.",
+          "chat",
+          snapshot,
+        );
+        frameView();
+        appendChatMessage("assistant", result.summary);
+        reply.start(result.summary);
+      } catch {
+        appendChatMessage(
+          "assistant",
+          "That edit could not be applied. Your flow was left unchanged.",
+        );
+      }
     },
     [
       appendChatMessage,
-      applyToolCall,
+      applyToolCalls,
       frameView,
       isGenerating,
       logVersion,
@@ -345,22 +371,30 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
     ],
   );
 
-  const runCompletenessCheck = useCallback(() => {
+  const runCompletenessCheck = useCallback(async () => {
     if (nodesRef.current.length === 0 || isChecking) return;
     setIsChecking(true);
     appendChatMessage("system", "Running flow check against known app patterns.");
-    if (checkTimerRef.current !== null)
-      window.clearTimeout(checkTimerRef.current);
-    checkTimerRef.current = window.setTimeout(() => {
-      setSuggestions(mockSuggestions);
+
+    try {
+      const result = await checkCompleteness({
+        nodes: nodesRef.current,
+        edges,
+      });
+      setSuggestions(result.suggestions);
       setIsChecking(false);
-      checkTimerRef.current = null;
       appendChatMessage(
         "assistant",
-        `${mockSuggestions.length} possible flow gap${mockSuggestions.length > 1 ? "s" : ""} found.`,
+        `${result.suggestions.length} possible flow gap${result.suggestions.length > 1 ? "s" : ""} found.`,
       );
-    }, CHECK_DURATION_MS);
-  }, [appendChatMessage, isChecking]);
+    } catch {
+      setIsChecking(false);
+      appendChatMessage(
+        "assistant",
+        "The flow check did not complete. Your flow was left unchanged.",
+      );
+    }
+  }, [appendChatMessage, edges, isChecking]);
 
   /** Approvals reuse the same reducer path as any command-bar edit. */
   const approveSuggestion = useCallback(
@@ -369,43 +403,85 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       const anchor = current[current.length - 1];
       const id = `${suggestion.screenId}_${current.length + 1}`;
 
-      applyToolCall({
-        type: "addNode",
-        payload: {
-          id,
-          label: suggestion.title.replace(/^Add\s+/i, ""),
-          screenId: suggestion.screenId,
-          category: suggestion.category,
-          position: anchor
-            ? { x: anchor.position.x + 250, y: anchor.position.y + 90 }
-            : { x: 0, y: 0 },
+      const calls: FlowToolCall[] = [
+        {
+          type: "addNode",
+          payload: {
+            id,
+            label: suggestion.title.replace(/^Add\s+/i, ""),
+            screenId: suggestion.screenId,
+            category: suggestion.category,
+            position: anchor
+              ? { x: anchor.position.x + 250, y: anchor.position.y + 90 }
+              : { x: 0, y: 0 },
+          },
         },
-      });
-
+      ];
       if (anchor) {
-        applyToolCall({
+        calls.push({
           type: "connect",
           payload: { source: anchor.id, target: id },
         });
       }
 
-      logVersion(`Approved suggestion: ${suggestion.title}`, "suggestion");
+      const snapshot = applyToolCalls(calls);
+      logVersion(`Approved suggestion: ${suggestion.title}`, "suggestion", snapshot);
       appendChatMessage("assistant", `Approved suggestion: ${suggestion.title}.`);
       setSuggestions((items) =>
         items.filter((item) => item.id !== suggestion.id),
       );
       frameView();
     },
-    [appendChatMessage, applyToolCall, frameView, logVersion],
+    [appendChatMessage, applyToolCalls, frameView, logVersion],
   );
 
   const rejectSuggestion = useCallback(
     (id: string) => {
       const rejected = suggestions.find((item) => item.id === id);
-      if (rejected) appendChatMessage("assistant", `Rejected suggestion: ${rejected.title}.`);
+      if (rejected)
+        appendChatMessage("assistant", `Rejected suggestion: ${rejected.title}.`);
       setSuggestions((items) => items.filter((item) => item.id !== id));
     },
     [appendChatMessage, suggestions],
+  );
+
+  /**
+   * Replays a historical graph and records the operation as a new version. The
+   * source version remains untouched, so restore is append-only and reversible.
+   */
+  const restoreVersion = useCallback(
+    (id: string): boolean => {
+      const version = versions.find((item) => item.id === id);
+      if (!version?.snapshot || isGenerating) return false;
+
+      const snapshot = toSnapshot(
+        version.snapshot.nodes,
+        version.snapshot.edges,
+      );
+      setNodes(snapshot.nodes);
+      setEdges(snapshot.edges);
+      setSuggestions([]);
+      logVersion(
+        `Restored ${version.label}: ${version.summary}`,
+        "restore",
+        snapshot,
+      );
+      appendChatMessage(
+        "assistant",
+        `Restored ${version.label}. The previous canvas remains available in history.`,
+      );
+      frameView();
+      return true;
+    },
+    [
+      appendChatMessage,
+      frameView,
+      isGenerating,
+      logVersion,
+      setEdges,
+      setNodes,
+      versions,
+    ],
   );
 
   /** Selection is exclusive: only one node can carry the accent border. */
@@ -440,8 +516,8 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       y: window.innerHeight / 2,
     });
 
-    setNodes((current) => [
-      ...current.map((node) => ({ ...node, selected: false })),
+    const nextNodes: ScreenNodeType[] = [
+      ...nodesRef.current.map((node) => ({ ...node, selected: false })),
       {
         id: `manual_${Date.now()}`,
         type: "screen",
@@ -453,33 +529,49 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
           category: "core",
         },
       },
-    ]);
-    setEdges((current) =>
-      current.map((edge) =>
-        edge.selected ? { ...edge, selected: false } : edge,
-      ),
+    ];
+    const nextEdges = edgesRef.current.map((edge) =>
+      edge.selected ? { ...edge, selected: false } : edge,
     );
-    logVersion(`Added New Screen ${index} manually.`, "manual");
+    setNodes(nextNodes);
+    setEdges(nextEdges);
+    logVersion(
+      `Added New Screen ${index} manually.`,
+      "manual",
+      toSnapshot(nextNodes, nextEdges),
+    );
   }, [logVersion, screenToFlowPosition, setEdges, setNodes]);
 
   const deleteNode = useCallback(
     (id: string) => {
       const node = nodesRef.current.find((item) => item.id === id);
-      setNodes((current) => current.filter((item) => item.id !== id));
-      setEdges((current) =>
-        current.filter((edge) => edge.source !== id && edge.target !== id),
+      const nextNodes = nodesRef.current.filter((item) => item.id !== id);
+      const nextEdges = edgesRef.current.filter(
+        (edge) => edge.source !== id && edge.target !== id,
       );
-      logVersion(`Deleted ${node?.data.label ?? "node"} manually.`, "manual");
+      setNodes(nextNodes);
+      setEdges(nextEdges);
+      logVersion(
+        `Deleted ${node?.data.label ?? "node"} manually.`,
+        "manual",
+        toSnapshot(nextNodes, nextEdges),
+      );
     },
     [logVersion, setEdges, setNodes],
   );
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      setEdges((current) =>
-        addEdge({ ...connection, ...defaultEdgeOptions }, current),
+      const nextEdges = addEdge(
+        { ...connection, ...defaultEdgeOptions },
+        edgesRef.current,
       );
-      logVersion("Connected two screens manually.", "manual");
+      setEdges(nextEdges);
+      logVersion(
+        "Connected two screens manually.",
+        "manual",
+        toSnapshot(nodesRef.current, nextEdges),
+      );
     },
     [logVersion, setEdges],
   );
@@ -496,6 +588,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       addManualNode,
       deleteNode,
       versions,
+      restoreVersion,
       isGenerating,
       isBusy,
       hasFlow: nodes.length > 0,
@@ -529,6 +622,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       rejectSuggestion,
       reply.isStreaming,
       reply.text,
+      restoreVersion,
       runCompletenessCheck,
       submitInstruction,
       suggestions,
