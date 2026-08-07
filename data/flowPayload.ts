@@ -110,29 +110,8 @@ nodes: ScreenNodeType[])
 
 
   if (anchor) {
-    calls.push({ type: 'connect', payload: { source: anchor.id, target: id } });
+    calls.push({ type: 'addEdge', payload: { source: anchor.id, target: id } });
   }
 
   return calls;
-}
-
-export function describeToolCall(
-call: FlowToolCall,
-nodes: ScreenNodeType[])
-: string {
-  switch (call.type) {
-    case 'addNode':
-      return `Added ${call.payload.label} node`;
-    case 'connect':{
-        const source = nodes.find((node) => node.id === call.payload.source);
-        const target = nodes.find((node) => node.id === call.payload.target);
-        return `Connected ${source?.data.label ?? call.payload.source} → ${
-        target?.data.label ?? call.payload.target}`;
-
-      }
-    case 'renameNode':
-      return `Renamed node to ${call.payload.label}`;
-    default:
-      return 'Applied change';
-  }
 }

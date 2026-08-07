@@ -57,7 +57,7 @@ const X_STEP = 260;
 const Y_STEP = 140;
 
 /** scr_* screenId from a kebab/free-form id, matching the mock convention. */
-function toScreenId(id: string): string {
+export function toScreenId(id: string): string {
   const slug = id
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")

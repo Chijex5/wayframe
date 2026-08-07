@@ -6,11 +6,8 @@
 // they go through ../index, so swapping to real /api/* fetch calls later is a
 // one-file change with zero caller churn.
 
-import {
-  describeToolCall,
-  generationPayload,
-  planToolCalls,
-} from "@/data/flowPayload";
+import { generationPayload, planToolCalls } from "@/data/flowPayload";
+import { describeToolCall } from "@/lib/flow/describeToolCall";
 import { mockSuggestions } from "@/data/suggestions";
 import { deriveProjectName } from "@/lib/flow/deriveProjectName";
 import type {

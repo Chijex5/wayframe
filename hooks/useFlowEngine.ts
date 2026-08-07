@@ -85,13 +85,14 @@ function applyCallToGraph(graph: Graph, call: FlowToolCall): Graph {
         edges: graph.edges,
       };
     }
-    case "connect": {
-      const { source, target } = call.payload;
+    case "removeNode": {
+      const { id } = call.payload;
       return {
-        nodes: graph.nodes,
-        edges: addEdge(
-          { id: `e-${source}-${target}`, source, target, ...defaultEdgeOptions },
-          graph.edges,
+        nodes: graph.nodes.filter((node) => node.id !== id),
+        // Removing a screen removes every connection touching it, so no edge is
+        // left dangling to a node that no longer exists.
+        edges: graph.edges.filter(
+          (edge) => edge.source !== id && edge.target !== id,
         ),
       };
     }
@@ -102,6 +103,25 @@ function applyCallToGraph(graph: Graph, call: FlowToolCall): Graph {
           node.id === id ? { ...node, data: { ...node.data, label } } : node,
         ),
         edges: graph.edges,
+      };
+    }
+    case "addEdge": {
+      const { source, target } = call.payload;
+      return {
+        nodes: graph.nodes,
+        edges: addEdge(
+          { id: `e-${source}-${target}`, source, target, ...defaultEdgeOptions },
+          graph.edges,
+        ),
+      };
+    }
+    case "removeEdge": {
+      const { source, target } = call.payload;
+      return {
+        nodes: graph.nodes,
+        edges: graph.edges.filter(
+          (edge) => !(edge.source === source && edge.target === target),
+        ),
       };
     }
     default:
@@ -551,7 +571,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       ];
       if (anchor) {
         calls.push({
-          type: "connect",
+          type: "addEdge",
           payload: { source: anchor.id, target: id },
         });
       }

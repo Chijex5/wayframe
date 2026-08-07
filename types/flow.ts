@@ -24,7 +24,13 @@ export const categoryMeta: Record<ScreenCategory, CategoryMeta> = {
   auth: { label: "auth", colorVar: "var(--cat-auth)" },
 };
 
-/** Tool-call shape a real model response would be mapped into. */
+/**
+ * Tool-call shape a real model response is mapped into. These are the five PRD
+ * §7 graph operations; the model plans them, `validateToolCalls` checks the
+ * whole batch against the current graph, and `applyCallToGraph` folds each over
+ * the canvas. `addNode` carries a server-computed `position` (the model returns
+ * semantics only); the other four reference existing nodes by id.
+ */
 export type FlowToolCall =
   | {
       type: "addNode";
@@ -37,12 +43,20 @@ export type FlowToolCall =
       };
     }
   | {
-      type: "connect";
-      payload: { source: string; target: string };
+      type: "removeNode";
+      payload: { id: string };
     }
   | {
       type: "renameNode";
       payload: { id: string; label: string };
+    }
+  | {
+      type: "addEdge";
+      payload: { source: string; target: string };
+    }
+  | {
+      type: "removeEdge";
+      payload: { source: string; target: string };
     };
 
 /** Immutable graph snapshot captured at the moment a version is recorded. */
