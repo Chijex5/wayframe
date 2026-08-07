@@ -68,10 +68,10 @@ export function LandingNav({ theme, onToggleTheme }: LandingNavProps) {
         <div className="flex items-center gap-2">
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <Link
-            href="/app"
+            href="/signin"
             className="hidden h-7 items-center border border-border bg-surface px-2.5 font-mono text-xs text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary sm:inline-flex"
             style={{ borderRadius: '2px' }}>
-            
+
             Sign in
           </Link>
           <Link
