@@ -295,6 +295,9 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       clearTimer();
       setNodes([]);
       setEdges([]);
+      // The AI-chosen name is known before the first screen streams in — apply it
+      // now so the header reflects it during the reveal, not only at the end.
+      setProjectName(generatedProjectName);
 
       const pendingNodes = [...payload.nodes];
       const pendingEdges = [...payload.edges];
@@ -324,7 +327,6 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
         if (pendingNodes.length === 0 && pendingEdges.length === 0) {
           clearTimer();
           setIsGenerating(false);
-          setProjectName(generatedProjectName);
           logVersion(
             "Initial flow generated from description.",
             "chat",

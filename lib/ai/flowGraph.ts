@@ -44,7 +44,9 @@ export const generatedGraphSchema = z.object({
   projectName: z
     .string()
     .min(1)
-    .describe("Short human-facing name for the overall flow, e.g. 'E-commerce Flow'."),
+    .describe(
+      "A concise, specific product name for this flow — 2 to 4 words, Title Case, no trailing 'Flow' unless it reads naturally. Name it after what the app IS (e.g. 'Plant Care Tracker', 'Indie Bookstore', 'Team Standup'), not a generic category.",
+    ),
   screens: z.array(screenSchema).min(1).max(24),
   connections: z.array(connectionSchema).max(64),
 });

@@ -3,7 +3,9 @@
 // Real, fetch-backed implementations of the flow service contracts. Swapped in
 // for the mock behind ../index.ts, one operation at a time as backend phases
 // land. Phase 5 ships `generateFlow` → POST /api/generate; Phase 6 ships
-// `editFlow` → POST /api/edit; checkCompleteness stays mock-backed until Phase 7.
+// `editFlow` → POST /api/edit; Phase 7 ships `checkCompleteness` → POST
+// /api/check. All three operations are now live — the mock service is fully off
+// the live path.
 //
 // Retry contract: transient statuses (429 rate limit, 503 transient) and network
 // failures throw RetryableError so the caller's withRetry() backs off and retries.
@@ -15,6 +17,8 @@
 import { RetryableError } from "../retry";
 import { InvalidToolCallError } from "@/lib/flow/validateToolCalls";
 import type {
+  CompletenessCheckRequest,
+  CompletenessCheckResult,
   EditFlowRequest,
   EditFlowResult,
   GenerateFlowRequest,
@@ -99,5 +103,33 @@ export async function editFlow(
   }
 
   throw new Error(`Flow edit failed (${response.status}).`);
+}
+
+export async function checkCompleteness(
+  request: CompletenessCheckRequest,
+): Promise<CompletenessCheckResult> {
+  let response: Response;
+  try {
+    response = await fetch("/api/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+  } catch {
+    // Offline / DNS / aborted transport — worth a retry.
+    throw new RetryableError("Network error reaching the completeness service.");
+  }
+
+  if (response.ok) {
+    return (await response.json()) as CompletenessCheckResult;
+  }
+
+  if (response.status === 429 || response.status === 503) {
+    throw new RetryableError(
+      `Completeness check temporarily unavailable (${response.status}).`,
+    );
+  }
+
+  throw new Error(`Completeness check failed (${response.status}).`);
 }
 
