@@ -54,6 +54,7 @@ export function LiveDemoPanel() {
 
   const isBuilding = phase === 'building' && visibleCount < stageNodes.length;
   const isComplete = visibleCount === stageNodes.length;
+  const isTyping = phase === 'typing' && typed < demoPrompt.length;
 
   return (
     <figure
@@ -72,7 +73,8 @@ export function LiveDemoPanel() {
         <span className="font-mono text-xs text-text-secondary">
           {isComplete ?
           <span className="text-accent">v0.4</span> :
-
+          isTyping ?
+          <span>draft</span> :
           <span>generating…</span>
           }
         </span>

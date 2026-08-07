@@ -1,3 +1,4 @@
+// /app/app/page.tsx
 import React from 'react';
 import { AppDashboard } from '@/components/AppDashboard';
 

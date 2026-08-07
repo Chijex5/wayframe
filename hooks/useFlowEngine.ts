@@ -19,6 +19,8 @@ import {
 import type { FlowToolCall, FlowVersion, ScreenNodeType } from "../types/flow";
 import { mockSuggestions, type FlowSuggestion } from "../data/suggestions";
 import { useMockStream } from "./useMockStream";
+import type { ChatMessage } from "../data/mockProjects";
+import type { ProjectSyncPatch } from "../store/useProjectsStore";
 
 const STREAM_TICK_MS = 350;
 const CHECK_DURATION_MS = 1800;
@@ -83,9 +85,12 @@ type UseFlowEngineOptions = {
   initialProjectName?: string;
   initialNodes?: ScreenNodeType[];
   initialEdges?: Edge[];
+  initialChatMessages?: ChatMessage[];
+  onSync?: (patch: ProjectSyncPatch) => void;
 };
 
 export function useFlowEngine(options: UseFlowEngineOptions = {}) {
+  const { onSync } = options;
   const { fitView, screenToFlowPosition } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<ScreenNodeType>(
     options.initialNodes ?? [],
@@ -99,6 +104,9 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   const [projectName, setProjectName] = useState(
     options.initialProjectName ?? UNTITLED_PROJECT,
   );
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(
+    options.initialChatMessages ?? [],
+  );
   const [isChecking, setIsChecking] = useState(false);
   const [suggestions, setSuggestions] = useState<FlowSuggestion[]>([]);
 
@@ -106,8 +114,24 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   const timerRef = useRef<number | null>(null);
   const checkTimerRef = useRef<number | null>(null);
   const versionCountRef = useRef(0);
+  const lastSyncRef = useRef<string | null>(null);
 
   const reply = useMockStream({ intervalMs: 35, chunkSize: 3 });
+
+  const appendChatMessage = useCallback(
+    (role: ChatMessage["role"], text: string) => {
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          role,
+          text,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    },
+    [],
+  );
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -128,6 +152,32 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
+
+  useEffect(() => {
+    if (!onSync) return;
+
+    const fingerprint = JSON.stringify({
+      projectName,
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        type: node.type,
+        position: node.position,
+        data: node.data,
+      })),
+      edges: edges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: edge.type,
+        data: edge.data,
+      })),
+      chatMessages,
+    });
+
+    if (lastSyncRef.current === fingerprint) return;
+    lastSyncRef.current = fingerprint;
+    onSync({ name: projectName, nodes, edges, chatMessages });
+  }, [chatMessages, edges, nodes, onSync, projectName]);
 
   const frameView = useCallback(() => {
     window.setTimeout(() => {
@@ -167,6 +217,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       setNodes([]);
       setEdges([]);
       setIsGenerating(true);
+      appendChatMessage("system", "Generating flow - streaming screens onto canvas.");
 
       const pendingNodes = [...payload.nodes];
       const pendingEdges = [...payload.edges];
@@ -196,12 +247,17 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
         if (pendingNodes.length === 0 && pendingEdges.length === 0) {
           clearTimer();
           setIsGenerating(false);
-          setProjectName(deriveProjectName(instruction));
+          const nextProjectName = deriveProjectName(instruction);
+          setProjectName(nextProjectName);
           logVersion("Initial flow generated from description.", "chat");
+          appendChatMessage(
+            "assistant",
+            `Generated ${payload.nodes.length} screens and ${payload.edges.length} connections for ${nextProjectName}.`,
+          );
         }
       }, STREAM_TICK_MS);
     },
-    [clearTimer, frameView, logVersion, setEdges, setNodes],
+    [appendChatMessage, clearTimer, frameView, logVersion, setEdges, setNodes],
   );
 
   /** Single reducer applying tool-call-shaped edits to canvas state. */
@@ -259,6 +315,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
     (instruction: string) => {
       if (isGenerating) return;
       setPrompt(instruction);
+      appendChatMessage("user", instruction);
 
       if (nodesRef.current.length === 0) {
         reply.reset();
@@ -270,14 +327,15 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       const summaries = calls.map((call) =>
         describeToolCall(call, nodesRef.current),
       );
+      const assistantSummary = `Applied ${calls.length} change${calls.length > 1 ? "s" : ""}: ${summaries.join("; ")}.`;
       calls.forEach(applyToolCall);
       summaries.forEach((summary) => logVersion(`${summary}.`, "chat"));
       frameView();
-      reply.start(
-        `Applied ${calls.length} change${calls.length > 1 ? "s" : ""} — ${summaries.join("; ")}.`,
-      );
+      appendChatMessage("assistant", assistantSummary);
+      reply.start(assistantSummary);
     },
     [
+      appendChatMessage,
       applyToolCall,
       frameView,
       isGenerating,
@@ -290,14 +348,19 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   const runCompletenessCheck = useCallback(() => {
     if (nodesRef.current.length === 0 || isChecking) return;
     setIsChecking(true);
+    appendChatMessage("system", "Running flow check against known app patterns.");
     if (checkTimerRef.current !== null)
       window.clearTimeout(checkTimerRef.current);
     checkTimerRef.current = window.setTimeout(() => {
       setSuggestions(mockSuggestions);
       setIsChecking(false);
       checkTimerRef.current = null;
+      appendChatMessage(
+        "assistant",
+        `${mockSuggestions.length} possible flow gap${mockSuggestions.length > 1 ? "s" : ""} found.`,
+      );
     }, CHECK_DURATION_MS);
-  }, [isChecking]);
+  }, [appendChatMessage, isChecking]);
 
   /** Approvals reuse the same reducer path as any command-bar edit. */
   const approveSuggestion = useCallback(
@@ -327,17 +390,23 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       }
 
       logVersion(`Approved suggestion: ${suggestion.title}`, "suggestion");
+      appendChatMessage("assistant", `Approved suggestion: ${suggestion.title}.`);
       setSuggestions((items) =>
         items.filter((item) => item.id !== suggestion.id),
       );
       frameView();
     },
-    [applyToolCall, frameView, logVersion],
+    [appendChatMessage, applyToolCall, frameView, logVersion],
   );
 
-  const rejectSuggestion = useCallback((id: string) => {
-    setSuggestions((items) => items.filter((item) => item.id !== id));
-  }, []);
+  const rejectSuggestion = useCallback(
+    (id: string) => {
+      const rejected = suggestions.find((item) => item.id === id);
+      if (rejected) appendChatMessage("assistant", `Rejected suggestion: ${rejected.title}.`);
+      setSuggestions((items) => items.filter((item) => item.id !== id));
+    },
+    [appendChatMessage, suggestions],
+  );
 
   /** Selection is exclusive: only one node can carry the accent border. */
   const handleNodesChange = useCallback(
@@ -432,6 +501,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       hasFlow: nodes.length > 0,
       projectName,
       prompt,
+      chatMessages,
       replyText: reply.text,
       isReplyStreaming: reply.isStreaming,
       submitInstruction,
@@ -444,6 +514,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
     [
       addManualNode,
       approveSuggestion,
+      chatMessages,
       deleteNode,
       edges,
       handleNodesChange,
