@@ -7,6 +7,7 @@ import {
   getSession,
   requestMagicLink,
   signOut as serviceSignOut,
+  updateProfile as serviceUpdateProfile,
 } from "@/lib/auth";
 import type { Session, SessionStatus } from "@/lib/auth";
 
@@ -17,6 +18,7 @@ type SessionStore = {
   hydrate: () => Promise<void>;
   requestLink: (email: string) => Promise<{ ok: boolean; error?: string }>;
   verifyLink: () => Promise<void>;
+  updateProfile: (name: string) => Promise<Session>;
   signOut: () => Promise<void>;
   setSession: (session: Session) => void;
 };
@@ -42,6 +44,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (!email) throw new Error("No pending sign-in request.");
     const session = await completeMagicLink(email);
     set({ session, status: "authenticated", pendingEmail:null });
+  },
+
+  updateProfile: async (name) => {
+    const session = await serviceUpdateProfile(name);
+    set({ session, status: "authenticated" });
+    return session;
   },
 
   signOut: async () => {

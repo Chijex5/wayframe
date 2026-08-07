@@ -96,5 +96,12 @@ export async function updateProfile(name: string): Promise<Session> {
   await delay(300);
   const current = readStoredSession();
   if (!current) throw new Error("Your session has expired. Sign in again.");
-  return saveSession({ ...current, user: { ...current.user, name } });
+  const trimmedName = name.trim();
+  if (trimmedName.length < 2 || trimmedName.length > 64) {
+    throw new Error("Display name must be between 2 and 64 characters.");
+  }
+  return saveSession({
+    ...current,
+    user: { ...current.user, name: trimmedName },
+  });
 }

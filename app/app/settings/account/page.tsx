@@ -1,5 +1,29 @@
 // app/app/settings/account/page.tsx
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { KeyRoundIcon, LogOutIcon, MailIcon } from "lucide-react";
+import { useSession } from "@/hooks/useSession";
+
 export default function AccountPage() {
+  const router = useRouter();
+  const { session, status, signOut } = useSession();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSignOut = async () => {
+    setError(null);
+    setIsSigningOut(true);
+    try {
+      await signOut();
+      router.push("/signin");
+    } catch {
+      setError("Sign out failed. Try again.");
+      setIsSigningOut(false);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
       <header className="border border-border bg-surface p-4">
@@ -18,35 +42,65 @@ export default function AccountPage() {
             login
           </h2>
         </div>
-        <div className="p-4">
+        <div className="flex flex-col gap-4 p-4">
           <label className="flex flex-col gap-1.5">
             <span className="font-mono text-xs uppercase tracking-wide text-text-secondary">
               Email
             </span>
             <input
               disabled
-              defaultValue="user@example.com"
-              className="border border-border bg-bg px-3 py-2 text-sm text-text-secondary outline-none"
+              readOnly
+              value={status === "loading" ? "Loading..." : (session?.user.email ?? "Not signed in")}
+              className="h-10 border border-border bg-surface-raised px-3 text-sm text-text-secondary outline-none"
             />
           </label>
+
+          <div className="grid gap-px border border-border bg-border sm:grid-cols-2">
+            <div className="flex items-start gap-3 bg-bg p-3">
+              <MailIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+              <div>
+                <p className="text-sm font-medium text-text-primary">Email magic link</p>
+                <p className="mt-1 text-xs leading-relaxed text-text-secondary">
+                  Sign in from a secure, single-use link sent to this address.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 bg-bg p-3">
+              <KeyRoundIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+              <div>
+                <p className="text-sm font-medium text-text-primary">Passwordless</p>
+                <p className="mt-1 text-xs leading-relaxed text-text-secondary">
+                  There is no password to create, remember, or reset.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="border border-danger/40 bg-surface">
-        <div className="border-b border-danger/40 px-4 py-3">
-          <h2 className="font-mono text-xs font-semibold uppercase tracking-wide text-danger">
-            danger zone
+      <section className="border border-border bg-surface">
+        <div className="border-b border-border px-4 py-3">
+          <h2 className="font-mono text-xs font-semibold uppercase tracking-wide text-text-primary">
+            session
           </h2>
         </div>
         <div className="flex flex-col gap-3 p-4">
           <p className="text-xs text-text-secondary">
-            Deleting your account removes all projects permanently.
+            Sign out on this device. You can return with a new email link at any time.
           </p>
+          {error && (
+            <p role="alert" className="border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+              {error}
+            </p>
+          )}
           <button
             type="button"
-            className="w-fit border border-danger px-3 py-1.5 font-mono text-xs font-medium text-danger transition-colors hover:bg-danger hover:text-white"
+            onClick={handleSignOut}
+            disabled={status !== "authenticated" || isSigningOut}
+            className="inline-flex h-9 w-fit items-center justify-center gap-2 border border-border bg-bg px-3 font-mono text-xs font-medium text-text-primary transition-colors hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:text-text-secondary"
           >
-            Delete account
+            <LogOutIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            {isSigningOut ? "Signing out..." : "Sign out"}
           </button>
         </div>
       </section>
