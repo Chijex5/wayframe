@@ -218,10 +218,12 @@ export function AppShell({
         <SuggestionsPanel
           isOpen={isCheckOpen}
           isChecking={engine.isChecking}
+          error={engine.error}
           suggestions={engine.suggestions}
           onClose={() => setIsCheckOpen(false)}
           onApprove={engine.approveSuggestion}
-          onReject={engine.rejectSuggestion} />
+          onReject={engine.rejectSuggestion}
+          onRetry={engine.runCompletenessCheck} />
         
       </main>
     </div>);

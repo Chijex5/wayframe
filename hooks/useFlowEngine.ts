@@ -14,13 +14,18 @@ import {
   type GenerationPayload,
 } from "../data/flowPayload";
 import type {
+  FlowError,
   FlowSnapshot,
   FlowToolCall,
   FlowVersion,
   ScreenNodeType,
 } from "../types/flow";
 import type { FlowSuggestion } from "../data/suggestions";
-import { checkCompleteness, editFlow, generateFlow } from "@/lib/api";
+import { checkCompleteness, editFlow, generateFlow, withRetry } from "@/lib/api";
+import {
+  InvalidToolCallError,
+  validateToolCalls,
+} from "@/lib/flow/validateToolCalls";
 import { useMockStream } from "./useMockStream";
 import type { ChatMessage } from "../data/mockProjects";
 import type { ProjectSyncPatch } from "../store/useProjectsStore";
@@ -128,6 +133,9 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   );
   const [versions, setVersions] = useState<FlowVersion[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [error, setError] = useState<FlowError | null>(null);
   const [prompt, setPrompt] = useState<string | null>(null);
   const [projectName, setProjectName] = useState(
     options.initialProjectName ?? UNTITLED_PROJECT,
@@ -140,6 +148,10 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
 
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
+  const mutationRef = useRef(false);
+  const checkRef = useRef(false);
+  const lastInstructionRef = useRef<string | null>(null);
+  const runCompletenessCheckRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<number | null>(null);
   const versionCountRef = useRef(0);
   const lastSyncRef = useRef<string | null>(null);
@@ -297,10 +309,12 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
    */
   const applyToolCalls = useCallback(
     (calls: FlowToolCall[]): FlowSnapshot => {
-      const next = calls.reduce(applyCallToGraph, {
+      const current = {
         nodes: nodesRef.current,
         edges: edgesRef.current,
-      });
+      };
+      validateToolCalls(calls, current);
+      const next = calls.reduce(applyCallToGraph, current);
       const cleaned = toSnapshot(next.nodes, next.edges);
       setNodes(cleaned.nodes);
       setEdges(cleaned.edges);
@@ -309,39 +323,52 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
     [setEdges, setNodes],
   );
 
-  const submitInstruction = useCallback(
+  const runGeneration = useCallback(
     async (instruction: string) => {
-      if (isGenerating) return;
-      setPrompt(instruction);
-      appendChatMessage("user", instruction);
-
-      if (nodesRef.current.length === 0) {
-        reply.reset();
-        setIsGenerating(true);
-        appendChatMessage(
-          "system",
-          "Generating flow - streaming screens onto canvas.",
-        );
-
-        try {
-          const result = await generateFlow({ description: instruction });
-          streamFlowPayload(result, result.projectName);
-        } catch {
-          setIsGenerating(false);
-          appendChatMessage(
-            "assistant",
-            "Flow generation failed. Your canvas was left unchanged.",
-          );
-        }
-        return;
-      }
-
+      setError(null);
+      setIsGenerating(true);
+      setIsRetrying(false);
       try {
-        const result = await editFlow({
-          instruction,
-          nodes: nodesRef.current,
-          edges: edgesRef.current,
+        const result = await withRetry(
+          () => generateFlow({ description: instruction }),
+          { onRetry: () => setIsRetrying(true) },
+        );
+        streamFlowPayload(result, result.projectName);
+      } catch {
+        setIsGenerating(false);
+        setError({
+          scope: "generate",
+          message:
+            "Flow generation failed. Your canvas was left unchanged — try again.",
+          retryable: true,
         });
+        appendChatMessage(
+          "assistant",
+          "Flow generation failed. Your canvas was left unchanged.",
+        );
+      } finally {
+        setIsRetrying(false);
+      }
+    },
+    [appendChatMessage, streamFlowPayload],
+  );
+
+  const runEdit = useCallback(
+    async (instruction: string) => {
+      setError(null);
+      setIsEditing(true);
+      try {
+        const result = await withRetry(
+          () =>
+            editFlow({
+              instruction,
+              nodes: nodesRef.current,
+              edges: edgesRef.current,
+            }),
+          { onRetry: () => setIsRetrying(true) },
+        );
+        // applyToolCalls validates first and throws on a malformed batch before
+        // any state changes, so the graph is preserved on rejection.
         const snapshot = applyToolCalls(result.calls);
         // One version per instruction: the batch of tool calls commits together,
         // so a single snapshot represents this edit coherently.
@@ -353,52 +380,138 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
         frameView();
         appendChatMessage("assistant", result.summary);
         reply.start(result.summary);
-      } catch {
+      } catch (caughtError) {
+        // A malformed batch is not worth a blind retry — the same instruction
+        // would replan the same invalid calls. Ask the user to rephrase instead.
+        const invalid = caughtError instanceof InvalidToolCallError;
+        setError({
+          scope: "edit",
+          message: invalid
+            ? `That edit was rejected: ${caughtError.message} Your flow was left unchanged.`
+            : "That edit could not be applied. Your flow was left unchanged — try again.",
+          retryable: !invalid,
+        });
         appendChatMessage(
           "assistant",
-          "That edit could not be applied. Your flow was left unchanged.",
+          invalid
+            ? `That edit was rejected: ${caughtError.message} Your flow was left unchanged.`
+            : "That edit could not be applied. Your flow was left unchanged.",
         );
+      } finally {
+        setIsEditing(false);
+        setIsRetrying(false);
       }
     },
-    [
-      appendChatMessage,
-      applyToolCalls,
-      frameView,
-      isGenerating,
-      logVersion,
-      reply,
-      streamFlowPayload,
-    ],
+    [appendChatMessage, applyToolCalls, frameView, logVersion, reply],
   );
 
+  const submitInstruction = useCallback(
+    async (instruction: string) => {
+      // Synchronous lock: blocks a second edit/generate fired before the first
+      // in-flight request resolves (React state updates lag the await window).
+      if (mutationRef.current || isGenerating) return;
+      mutationRef.current = true;
+      try {
+        setPrompt(instruction);
+        lastInstructionRef.current = instruction;
+        appendChatMessage("user", instruction);
+
+        if (nodesRef.current.length === 0) {
+          reply.reset();
+          appendChatMessage(
+            "system",
+            "Generating flow - streaming screens onto canvas.",
+          );
+          await runGeneration(instruction);
+          return;
+        }
+
+        await runEdit(instruction);
+      } finally {
+        mutationRef.current = false;
+      }
+    },
+    [appendChatMessage, isGenerating, reply, runEdit, runGeneration],
+  );
+
+  const retryLastOperation = useCallback(() => {
+    if (!error?.retryable || mutationRef.current) return;
+    const instruction = lastInstructionRef.current;
+
+    if (error.scope === "check") {
+      setError(null);
+      void runCompletenessCheckRef.current?.();
+      return;
+    }
+
+    if (!instruction) return;
+    setError(null);
+    void (async () => {
+      if (mutationRef.current || isGenerating) return;
+      mutationRef.current = true;
+      try {
+        if (error.scope === "generate" && nodesRef.current.length === 0) {
+          reply.reset();
+          await runGeneration(instruction);
+        } else {
+          await runEdit(instruction);
+        }
+      } finally {
+        mutationRef.current = false;
+      }
+    })();
+  }, [error, isGenerating, reply, runEdit, runGeneration]);
+
+  const dismissError = useCallback(() => setError(null), []);
+
   const runCompletenessCheck = useCallback(async () => {
-    if (nodesRef.current.length === 0 || isChecking) return;
+    if (nodesRef.current.length === 0 || checkRef.current) return;
+    checkRef.current = true;
+    if (error?.scope === "check") setError(null);
     setIsChecking(true);
     appendChatMessage("system", "Running flow check against known app patterns.");
 
     try {
-      const result = await checkCompleteness({
-        nodes: nodesRef.current,
-        edges,
-      });
+      const result = await withRetry(
+        () => checkCompleteness({ nodes: nodesRef.current, edges: edgesRef.current }),
+        { onRetry: () => setIsRetrying(true) },
+      );
       setSuggestions(result.suggestions);
-      setIsChecking(false);
       appendChatMessage(
         "assistant",
-        `${result.suggestions.length} possible flow gap${result.suggestions.length > 1 ? "s" : ""} found.`,
+        `${result.suggestions.length} possible flow gap${result.suggestions.length !== 1 ? "s" : ""} found.`,
       );
     } catch {
-      setIsChecking(false);
+      setError({
+        scope: "check",
+        message:
+          "The flow check did not complete. Your flow was left unchanged — try again.",
+        retryable: true,
+      });
       appendChatMessage(
         "assistant",
         "The flow check did not complete. Your flow was left unchanged.",
       );
+    } finally {
+      setIsChecking(false);
+      setIsRetrying(false);
+      checkRef.current = false;
     }
-  }, [appendChatMessage, edges, isChecking]);
+  }, [appendChatMessage, error?.scope]);
+
+  // Forward reference so retryLastOperation (defined above) can re-run a check
+  // without depending on runCompletenessCheck directly. Assigned in an effect —
+  // mutating a ref during render is disallowed by react-hooks/refs.
+  useEffect(() => {
+    runCompletenessCheckRef.current = () => {
+      void runCompletenessCheck();
+    };
+  }, [runCompletenessCheck]);
 
   /** Approvals reuse the same reducer path as any command-bar edit. */
   const approveSuggestion = useCallback(
     (suggestion: FlowSuggestion) => {
+      if (isGenerating || mutationRef.current) return;
       const current = nodesRef.current;
       const anchor = current[current.length - 1];
       const id = `${suggestion.screenId}_${current.length + 1}`;
@@ -424,15 +537,27 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
         });
       }
 
-      const snapshot = applyToolCalls(calls);
-      logVersion(`Approved suggestion: ${suggestion.title}`, "suggestion", snapshot);
-      appendChatMessage("assistant", `Approved suggestion: ${suggestion.title}.`);
-      setSuggestions((items) =>
-        items.filter((item) => item.id !== suggestion.id),
-      );
-      frameView();
+      try {
+        const snapshot = applyToolCalls(calls);
+        logVersion(`Approved suggestion: ${suggestion.title}`, "suggestion", snapshot);
+        appendChatMessage("assistant", `Approved suggestion: ${suggestion.title}.`);
+        setSuggestions((items) =>
+          items.filter((item) => item.id !== suggestion.id),
+        );
+        frameView();
+      } catch (caughtError) {
+        const reason =
+          caughtError instanceof InvalidToolCallError
+            ? caughtError.message
+            : "the change was invalid.";
+        setError({
+          scope: "check",
+          message: `That suggestion could not be applied: ${reason} Your flow was left unchanged.`,
+          retryable: false,
+        });
+      }
     },
-    [appendChatMessage, applyToolCalls, frameView, logVersion],
+    [appendChatMessage, applyToolCalls, frameView, isGenerating, logVersion],
   );
 
   const rejectSuggestion = useCallback(
@@ -452,7 +577,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   const restoreVersion = useCallback(
     (id: string): boolean => {
       const version = versions.find((item) => item.id === id);
-      if (!version?.snapshot || isGenerating) return false;
+      if (!version?.snapshot || isGenerating || mutationRef.current) return false;
 
       const snapshot = toSnapshot(
         version.snapshot.nodes,
@@ -510,6 +635,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
   );
 
   const addManualNode = useCallback(() => {
+    if (isGenerating || mutationRef.current) return;
     const index = nodesRef.current.length + 1;
     const position = screenToFlowPosition({
       x: window.innerWidth / 2,
@@ -540,10 +666,11 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       "manual",
       toSnapshot(nextNodes, nextEdges),
     );
-  }, [logVersion, screenToFlowPosition, setEdges, setNodes]);
+  }, [isGenerating, logVersion, screenToFlowPosition, setEdges, setNodes]);
 
   const deleteNode = useCallback(
     (id: string) => {
+      if (isGenerating || mutationRef.current) return;
       const node = nodesRef.current.find((item) => item.id === id);
       const nextNodes = nodesRef.current.filter((item) => item.id !== id);
       const nextEdges = edgesRef.current.filter(
@@ -557,11 +684,12 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
         toSnapshot(nextNodes, nextEdges),
       );
     },
-    [logVersion, setEdges, setNodes],
+    [isGenerating, logVersion, setEdges, setNodes],
   );
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      if (isGenerating || mutationRef.current) return;
       const nextEdges = addEdge(
         { ...connection, ...defaultEdgeOptions },
         edgesRef.current,
@@ -573,10 +701,10 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
         toSnapshot(nodesRef.current, nextEdges),
       );
     },
-    [logVersion, setEdges],
+    [isGenerating, logVersion, setEdges],
   );
 
-  const isBusy = isGenerating || reply.isStreaming;
+  const isBusy = isGenerating || isEditing || reply.isStreaming;
 
   return useMemo(
     () => ({
@@ -590,7 +718,12 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       versions,
       restoreVersion,
       isGenerating,
+      isEditing,
+      isRetrying,
       isBusy,
+      error,
+      retryLastOperation,
+      dismissError,
       hasFlow: nodes.length > 0,
       projectName,
       prompt,
@@ -609,11 +742,15 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       approveSuggestion,
       chatMessages,
       deleteNode,
+      dismissError,
       edges,
+      error,
       handleNodesChange,
       isBusy,
       isChecking,
+      isEditing,
       isGenerating,
+      isRetrying,
       nodes,
       onConnect,
       onEdgesChange,
@@ -623,6 +760,7 @@ export function useFlowEngine(options: UseFlowEngineOptions = {}) {
       reply.isStreaming,
       reply.text,
       restoreVersion,
+      retryLastOperation,
       runCompletenessCheck,
       submitInstruction,
       suggestions,

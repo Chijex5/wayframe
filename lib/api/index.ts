@@ -10,6 +10,8 @@ export {
   generateFlow,
 } from "./mock/flowService";
 
+export { RetryableError, withRetry } from "./retry";
+
 export type {
   CompletenessCheckRequest,
   CompletenessCheckResult,

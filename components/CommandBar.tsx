@@ -1,15 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUpIcon, ChevronDownIcon, MessageSquareIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  ArrowUpIcon,
+  ChevronDownIcon,
+  MessageSquareIcon,
+  RotateCwIcon,
+  XIcon,
+} from "lucide-react";
 import type { ChatMessage } from "../data/mockProjects";
+import type { FlowError } from "../types/flow";
 
 type CommandBarProps = {
   isBusy: boolean;
   isGenerating: boolean;
+  isRetrying: boolean;
+  error: FlowError | null;
   chatMessages: ChatMessage[];
   replyText: string;
   isReplyStreaming: boolean;
   onSubmit: (instruction: string) => void;
+  onRetry: () => void;
+  onDismissError: () => void;
 };
 
 function formatTime(value: string) {
@@ -28,10 +40,14 @@ function roleLabel(role: ChatMessage["role"]) {
 export function CommandBar({
   isBusy,
   isGenerating,
+  isRetrying,
+  error,
   chatMessages,
   replyText,
   isReplyStreaming,
   onSubmit,
+  onRetry,
+  onDismissError,
 }: CommandBarProps) {
   const [value, setValue] = useState("");
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -54,6 +70,10 @@ export function CommandBar({
   }, [chatMessages, isReplyStreaming, replyText]);
 
   const latestMessage = visibleMessages[visibleMessages.length - 1] ?? null;
+
+  // Check-scope failures surface in the SuggestionsPanel; the bar only owns
+  // generate/edit errors so the two don't render the same message twice.
+  const barError = error && error.scope !== "check" ? error : null;
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -167,11 +187,47 @@ export function CommandBar({
             </button>
 
             <p className="min-w-0 flex-1 truncate text-right font-mono text-[11px] text-text-secondary">
-              {isGenerating
-                ? "generating flow - streaming screens"
-                : latestMessage?.text ?? "describe your app or next edit"}
+              {isRetrying
+                ? "still working - retrying"
+                : isGenerating
+                  ? "generating flow - streaming screens"
+                  : latestMessage?.text ?? "describe your app or next edit"}
             </p>
           </div>
+
+          {barError && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 border-b border-danger/40 bg-danger/10 px-3 py-2"
+            >
+              <AlertTriangleIcon
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger"
+                aria-hidden="true"
+              />
+              <p className="min-w-0 flex-1 text-xs leading-relaxed text-danger">
+                {barError.message}
+              </p>
+              {barError.retryable && (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  disabled={isBusy}
+                  className="inline-flex h-6 shrink-0 items-center gap-1 border border-danger/50 px-1.5 font-mono text-[11px] text-danger transition-colors hover:bg-danger hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RotateCwIcon className="h-3 w-3" aria-hidden="true" />
+                  Retry
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onDismissError}
+                aria-label="Dismiss error"
+                className="flex h-6 w-6 shrink-0 items-center justify-center text-danger transition-opacity hover:opacity-70"
+              >
+                <XIcon className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          )}
 
           <div className="flex items-end gap-2 p-2">
             <label className="sr-only" htmlFor="wayframe-command-input">

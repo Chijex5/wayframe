@@ -1,26 +1,34 @@
 import React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CheckIcon, ShieldCheckIcon, XIcon } from "lucide-react";
+import { AlertTriangleIcon, CheckIcon, RotateCwIcon, ShieldCheckIcon, XIcon } from "lucide-react";
 import { categoryMeta } from "../types/flow";
+import type { FlowError } from "../types/flow";
 import type { FlowSuggestion } from "../data/suggestions";
 
 type SuggestionsPanelProps = {
   isOpen: boolean;
   isChecking: boolean;
+  error: FlowError | null;
   suggestions: FlowSuggestion[];
   onClose: () => void;
   onApprove: (suggestion: FlowSuggestion) => void;
   onReject: (id: string) => void;
+  onRetry: () => void;
 };
 
 export function SuggestionsPanel({
   isOpen,
   isChecking,
+  error,
   suggestions,
   onClose,
   onApprove,
   onReject,
+  onRetry,
 }: SuggestionsPanelProps) {
+  // The bar owns generate/edit errors; this panel only surfaces check failures.
+  const checkError = error && error.scope === "check" ? error : null;
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -55,11 +63,38 @@ export function SuggestionsPanel({
             <div className="mt-3 border border-border bg-surface px-2 py-1.5 font-mono text-[11px] text-text-secondary">
               {isChecking
                 ? "analysis running"
-                : suggestions.length > 0
-                  ? `${suggestions.length} possible gap${suggestions.length > 1 ? "s" : ""} found`
-                  : "no open suggestions"}
+                : checkError
+                  ? "check failed"
+                  : suggestions.length > 0
+                    ? `${suggestions.length} possible gap${suggestions.length > 1 ? "s" : ""} found`
+                    : "no open suggestions"}
             </div>
           </div>
+
+          {checkError && !isChecking && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 border-b border-danger/40 bg-danger/10 px-3 py-2"
+            >
+              <AlertTriangleIcon
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger"
+                aria-hidden="true"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs leading-relaxed text-danger">{checkError.message}</p>
+                {checkError.retryable && (
+                  <button
+                    type="button"
+                    onClick={onRetry}
+                    className="mt-2 inline-flex h-6 items-center gap-1 border border-danger/50 px-1.5 font-mono text-[11px] text-danger transition-colors hover:bg-danger hover:text-white"
+                  >
+                    <RotateCwIcon className="h-3 w-3" aria-hidden="true" />
+                    Run check again
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {isChecking ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4">
@@ -90,7 +125,9 @@ export function SuggestionsPanel({
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
               {suggestions.length === 0 ? (
                 <p className="border border-border bg-bg p-3 text-sm leading-relaxed text-text-secondary">
-                  Every suggestion has been handled. Run the check again after editing the flow.
+                  {checkError
+                    ? "The check didn't finish, so no suggestions were produced. Retry above to run it again."
+                    : "Every suggestion has been handled. Run the check again after editing the flow."}
                 </p>
               ) : (
                 <ul className="flex flex-col gap-2">

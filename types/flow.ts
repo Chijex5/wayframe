@@ -64,3 +64,17 @@ export type FlowVersion = {
    */
   snapshot?: FlowSnapshot;
 };
+
+/** Which operation failed, so the UI can attach the error to the right surface. */
+export type FlowErrorScope = "generate" | "edit" | "check";
+
+/**
+ * A user-facing operation failure. `retryable` distinguishes transient failures
+ * (worth a retry button) from rejections a blind retry cannot fix — e.g. a
+ * malformed edit — where the flow was preserved and the user should rephrase.
+ */
+export type FlowError = {
+  scope: FlowErrorScope;
+  message: string;
+  retryable: boolean;
+};

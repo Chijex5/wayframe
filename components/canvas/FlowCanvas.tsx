@@ -118,10 +118,14 @@ export function FlowCanvas({ engine, captureRef }: FlowCanvasProps) {
       <CommandBar
         isBusy={engine.isBusy}
         isGenerating={engine.isGenerating}
+        isRetrying={engine.isRetrying}
+        error={engine.error}
         chatMessages={engine.chatMessages}
         replyText={engine.replyText}
         isReplyStreaming={engine.isReplyStreaming}
         onSubmit={engine.submitInstruction}
+        onRetry={engine.retryLastOperation}
+        onDismissError={engine.dismissError}
       />
     </div>
   );
