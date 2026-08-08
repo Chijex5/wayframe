@@ -9,8 +9,8 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
       <AppHeader mode="dashboard" />
       <div className="flex flex-1 flex-col md:flex-row">
         <SettingsSidebar />
-        <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8">
-          <div className="mx-auto max-w-3xl">{children}</div>
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto flex max-w-4xl flex-col gap-4">{children}</div>
         </main>
       </div>
     </div>

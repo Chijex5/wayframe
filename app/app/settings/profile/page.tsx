@@ -5,6 +5,11 @@ import { SyntheticEvent, useState } from "react";
 import { CheckCircle2Icon, SaveIcon } from "lucide-react";
 import { initialsFromName } from "@/lib/auth/initials";
 import { useSessionStore } from "@/store/useSessionStore";
+import {
+  Avatar,
+  SettingsHeader,
+  SettingsSection,
+} from "@/components/settings/primitives";
 
 export default function ProfilePage() {
   const session = useSessionStore((state) => state.session);
@@ -59,44 +64,46 @@ export default function ProfilePage() {
     );
   }
 
-  const displayName = session?.user.name ?? "Wayframe user";
+  const displayName = session?.user.name?.trim() || "Wayframe user";
   const displayEmail = session?.user.email ?? "Sign in to edit your profile";
+  const previewName = trimmedName.length >= 2 ? trimmedName : displayName;
 
   return (
-    <div className="flex flex-col gap-4">
-      <header className="border border-border bg-surface p-4">
-        <p className="font-mono text-xs uppercase tracking-wide text-text-secondary">
-          settings / user
-        </p>
-        <h1 className="mt-2 text-xl font-bold text-text-primary">Profile</h1>
-        <p className="mt-1 text-sm text-text-secondary">
-          This is how others will see you across Wayframe.
-        </p>
-      </header>
+    <>
+      <SettingsHeader
+        eyebrow="settings / profile"
+        title="Profile"
+        description="This is how you appear across Wayframe. Your display name shows on the workspace and in shared views."
+      />
 
-      <section className="flex items-center gap-4 border border-border bg-surface p-4">
-        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-accent font-mono text-lg font-semibold text-white">
-          {initialsFromName(displayName)}
-        </span>
-        <div className="flex flex-col gap-1">
-          <span className="font-mono text-[10px] uppercase tracking-wide text-text-secondary">
-            active identity
-          </span>
-          <span className="text-sm font-semibold text-text-primary">{displayName}</span>
-          <span className="font-mono text-xs text-text-secondary">{displayEmail}</span>
+      {/* Live identity preview — updates as you type the display name. */}
+      <SettingsSection label="identity">
+        <div className="flex items-center gap-4">
+          <Avatar
+            name={previewName}
+            image={session?.user.image}
+            initials={initialsFromName(previewName)}
+            size="lg"
+          />
+          <div className="min-w-0">
+            <span className="font-mono text-[10px] uppercase tracking-wide text-text-secondary">
+              active identity
+            </span>
+            <p className="mt-0.5 truncate text-lg font-semibold text-text-primary">
+              {previewName}
+            </p>
+            <p className="truncate font-mono text-xs text-text-secondary">
+              {displayEmail}
+            </p>
+          </div>
         </div>
-      </section>
+      </SettingsSection>
 
-      <section className="border border-border bg-surface">
-        <div className="border-b border-border px-4 py-3">
-          <h2 className="font-mono text-xs font-semibold uppercase tracking-wide text-text-primary">
-            public details
-          </h2>
-        </div>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3 p-4">
+      <SettingsSection label="display name">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <label className="flex flex-col gap-1.5">
-            <span className="font-mono text-xs uppercase tracking-wide text-text-secondary">
-              Display name
+            <span className="font-mono text-[10px] uppercase tracking-wide text-text-secondary">
+              Name shown to others
             </span>
             <input
               value={name}
@@ -112,8 +119,12 @@ export default function ProfilePage() {
               aria-describedby={error ? "profile-error" : "profile-name-hint"}
               className="h-10 border border-border bg-bg px-3 text-sm text-text-primary outline-none placeholder:text-text-secondary focus:border-accent disabled:cursor-not-allowed disabled:bg-surface-raised disabled:text-text-secondary"
             />
-            <span id="profile-name-hint" className="font-mono text-[10px] text-text-secondary">
-              2-64 characters
+            <span
+              id="profile-name-hint"
+              className="flex items-center justify-between font-mono text-[10px] text-text-secondary"
+            >
+              <span>2–64 characters</span>
+              <span>{trimmedName.length}/64</span>
             </span>
           </label>
 
@@ -141,10 +152,10 @@ export default function ProfilePage() {
             className="inline-flex h-9 w-fit items-center justify-center gap-2 border border-accent bg-accent px-3 font-mono text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-raised disabled:text-text-secondary"
           >
             <SaveIcon className="h-3.5 w-3.5" aria-hidden="true" />
-            {isSaving ? "Saving..." : "Save changes"}
+            {isSaving ? "Saving…" : "Save changes"}
           </button>
         </form>
-      </section>
-    </div>
+      </SettingsSection>
+    </>
   );
 }
