@@ -44,3 +44,27 @@ export function Crosshair({ className = '' }: {className?: string;}) {
     </span>);
 
 }
+
+export function AuthBackdrop() {
+  return (
+    <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-bg">
+      <div
+        className="absolute left-1/2 top-0 h-[480px] w-[720px] -translate-x-1/2 opacity-25"
+        style={{
+          background: 'radial-gradient(circle, var(--accent) 0%, transparent 70%)',
+          filter: 'blur(60px)',
+        }}
+      />
+      <div
+        className="absolute inset-0 opacity-40"
+        style={{
+          backgroundImage: 'radial-gradient(var(--border) 1px, transparent 1px)',
+          backgroundSize: '24px 24px',
+          maskImage: 'radial-gradient(ellipse 60% 50% at 50% 40%, black 0%, transparent 75%)',
+          WebkitMaskImage: 'radial-gradient(ellipse 60% 50% at 50% 40%, black 0%, transparent 75%)',
+        }}
+      />
+    </div>
+  );
+}
+ 

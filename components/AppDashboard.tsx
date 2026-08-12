@@ -1,22 +1,34 @@
 // components/AppDashboard.tsx
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { BoxesIcon, GitBranchIcon, LayersIcon, PlusIcon, SparklesIcon, Trash2Icon } from "lucide-react";
+import {
+  ArrowUpDownIcon,
+  PlusIcon,
+  SearchIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { AppHeader } from "./AppHeader";
 import { ProjectThumb } from "./ProjectThumb";
 import { useProjectsStore } from "@/store/useProjectsStore";
 import { categoryMeta, type ScreenCategory } from "@/types/flow";
 
-function formatEdited(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+type SortKey = "recent" | "name";
+
+function formatRelative(value: string) {
+  const ms = Date.now() - new Date(value).getTime();
+  const min = Math.round(ms / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hrs = Math.round(min / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
+    new Date(value),
+  );
 }
 
 export function AppDashboard() {
@@ -26,25 +38,32 @@ export function AppDashboard() {
   const hydrate = useProjectsStore((s) => s.hydrate);
   const createProject = useProjectsStore((s) => s.createProject);
   const deleteProject = useProjectsStore((s) => s.deleteProject);
-  const totalNodes = projects.reduce((sum, project) => sum + project.nodes.length, 0);
-  const totalEdges = projects.reduce((sum, project) => sum + project.edges.length, 0);
   const isReady = status === "ready";
+
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortKey>("recent");
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  const visibleProjects = useMemo(() => {
+    const filtered = query.trim()
+      ? projects.filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase()))
+      : projects;
+    return [...filtered].sort((a, b) =>
+      sort === "recent"
+        ? Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+        : a.name.localeCompare(b.name),
+    );
+  }, [projects, query, sort]);
 
   const handleCreate = async () => {
     const id = await createProject();
     if (id) router.push(`/app/c/${id}`);
   };
 
-  const handleDelete = async (
-    event: React.MouseEvent,
-    id: string,
-    name: string,
-  ) => {
-    // The card is a Link; stop the click from navigating into the project.
+  const handleDelete = async (event: React.MouseEvent, id: string, name: string) => {
     event.preventDefault();
     event.stopPropagation();
     if (!window.confirm(`Delete "${name}"? This can't be undone.`)) return;
@@ -55,197 +74,139 @@ export function AppDashboard() {
     <div className="flex min-h-screen w-full flex-col bg-bg">
       <AppHeader mode="dashboard" />
 
-      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 px-4 py-5 sm:px-6 lg:px-8">
-        <section className="relative overflow-hidden border border-border bg-surface">
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 opacity-45"
-            style={{
-              backgroundImage:
-                "linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)",
-              backgroundSize: "32px 32px",
-            }}
-          />
-          <div className="relative flex flex-col gap-5 p-4 sm:p-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="font-mono text-xs uppercase tracking-wide text-accent">
-                workspace / projects
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-text-primary">Projects</h1>
+            {isReady && projects.length > 0 && (
+              <p className="mt-1 text-sm text-text-secondary">
+                {projects.length} {projects.length === 1 ? "project" : "projects"}
               </p>
-              <h1 className="mt-2 text-2xl font-bold leading-tight text-text-primary sm:text-3xl">
-                App flows, drafts, and generated screen maps.
-              </h1>
-              <p className="mt-2 max-w-xl text-sm leading-relaxed text-text-secondary">
-                Start from a prompt, inspect the navigation graph, and keep every canvas edit reflected here.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 sm:min-w-[360px]">
-              {[
-                { label: "projects", value: projects.length, icon: BoxesIcon },
-                { label: "nodes", value: totalNodes, icon: LayersIcon },
-                { label: "edges", value: totalEdges, icon: GitBranchIcon },
-              ].map(({ label, value, icon: Icon }) => (
-                <div key={label} className="border border-border bg-bg/80 p-3">
-                  <Icon className="h-3.5 w-3.5 text-text-secondary" aria-hidden="true" />
-                  <div className="mt-3 font-mono text-xl font-semibold leading-none text-text-primary">
-                    {value}
-                  </div>
-                  <div className="mt-1 font-mono text-[10px] uppercase tracking-wide text-text-secondary">
-                    {label}
-                  </div>
-                </div>
-              ))}
-            </div>
+            )}
           </div>
-          <div className="relative flex items-center justify-between border-t border-border bg-bg/80 px-4 py-3 sm:px-5">
-            <span className="font-mono text-xs text-text-secondary">
-              {projects.length === 0 ? "ready for first flow" : "latest project sync active"}
-            </span>
-            <button
-              type="button"
-              onClick={handleCreate}
-              className="inline-flex h-9 items-center gap-2 border border-accent bg-accent px-3 font-mono text-xs font-medium text-white transition-opacity hover:opacity-90"
-            >
-              <PlusIcon className="h-3.5 w-3.5" aria-hidden="true" />
-              New Project
-            </button>
-          </div>
-        </section>
 
-        {!isReady ? (
-          <section
-            className="grid min-h-[360px] place-items-center border border-dashed border-border bg-surface"
-            aria-label="Loading projects"
-          >
-            <span className="font-mono text-xs text-text-secondary">
-              {status === "error" ? "Couldn't load projects." : "Loading projects…"}
-            </span>
-          </section>
-        ) : projects.length === 0 ? (
-          <section className="grid min-h-[360px] border border-dashed border-border bg-surface md:grid-cols-[1fr_1.2fr]">
-            <div className="flex flex-col justify-between border-b border-border p-5 md:border-b-0 md:border-r">
-              <div>
-                <p className="font-mono text-xs uppercase tracking-wide text-text-secondary">
-                  empty state
-                </p>
-                <h2 className="mt-3 text-xl font-semibold leading-tight text-text-primary">
-                  Generate your first flow from a short product description.
-                </h2>
-                <p className="mt-2 text-sm leading-relaxed text-text-secondary">
-                  The canvas will stream screens into place, then this dashboard will show the saved thumbnail, title, and edit time.
-                </p>
+          {isReady && projects.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-secondary" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search projects"
+                  className="h-9 w-full rounded-full border border-border/60 bg-surface pl-8 pr-3 text-sm text-text-primary placeholder:text-text-secondary focus:border-accent/50 focus:outline-none sm:w-56"
+                />
               </div>
+
+              <button
+                type="button"
+                onClick={() => setSort((s) => (s === "recent" ? "name" : "recent"))}
+                className="flex h-9 items-center gap-1.5 rounded-full border border-border/60 bg-surface px-3 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
+              >
+                <ArrowUpDownIcon className="h-3.5 w-3.5" />
+                {sort === "recent" ? "Recent" : "Name"}
+              </button>
+
               <button
                 type="button"
                 onClick={handleCreate}
-                className="mt-5 inline-flex h-9 w-fit items-center gap-2 border border-accent bg-accent px-3 font-mono text-xs font-medium text-white transition-opacity hover:opacity-90"
+                className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-accent px-3.5 text-xs font-medium text-white transition-opacity hover:opacity-90"
               >
-                <SparklesIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                Start flow
+                <PlusIcon className="h-3.5 w-3.5" />
+                New
               </button>
             </div>
-            <div className="relative min-h-[260px] overflow-hidden bg-bg">
-              <ProjectThumb
-                project={{
-                  id: "preview",
-                  name: "Preview",
-                  updatedAt: new Date().toISOString(),
-                  chatMessages: [],
-                  nodes: [
-                    { id: "a", type: "screen", position: { x: 0, y: 40 }, data: { label: "Landing", screenId: "scr_a", category: "core" } },
-                    { id: "b", type: "screen", position: { x: 260, y: 40 }, data: { label: "Sign up", screenId: "scr_b", category: "auth" } },
-                    { id: "c", type: "screen", position: { x: 520, y: -20 }, data: { label: "Checkout", screenId: "scr_c", category: "commerce" } },
-                    { id: "d", type: "screen", position: { x: 520, y: 110 }, data: { label: "Dashboard", screenId: "scr_d", category: "core" } },
-                  ],
-                  edges: [
-                    { id: "e-a-b", source: "a", target: "b" },
-                    { id: "e-b-c", source: "b", target: "c" },
-                    { id: "e-b-d", source: "b", target: "d" },
-                  ],
-                }}
-              />
-              <div className="absolute left-4 top-4 border border-border bg-surface px-3 py-2 font-mono text-xs text-text-secondary">
-                preview / generated flow
-              </div>
+          )}
+        </div>
+
+        {status === "error" ? (
+          <div className="grid min-h-[300px] place-items-center rounded-2xl border border-border/60 bg-surface">
+            <span className="text-sm text-text-secondary">Couldn&apos;t load your projects.</span>
+          </div>
+        ) : !isReady ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-[240px] animate-pulse rounded-2xl bg-surface" />
+            ))}
+          </div>
+        ) : projects.length === 0 ? (
+          <div className="flex min-h-[420px] flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-border/60 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/10">
+              <PlusIcon className="h-6 w-6 text-accent" />
             </div>
-          </section>
+            <div>
+              <h2 className="text-lg font-semibold text-text-primary">Nothing here yet</h2>
+              <p className="mt-1 max-w-sm text-sm text-text-secondary">
+                Create a project and describe the app you&apos;re building — a flow map appears as you go.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleCreate}
+              className="flex h-10 items-center gap-2 rounded-full bg-accent px-4 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            >
+              <PlusIcon className="h-4 w-4" />
+              New project
+            </button>
+          </div>
+        ) : visibleProjects.length === 0 ? (
+          <div className="grid min-h-[200px] place-items-center rounded-2xl border border-dashed border-border/60">
+            <span className="text-sm text-text-secondary">No projects match &quot;{query}&quot;</span>
+          </div>
         ) : (
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-            {projects.map((project) => {
+          <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+            {visibleProjects.map((project) => {
               const categories = Array.from(
                 new Set(project.nodes.map((node) => node.data.category)),
               ) as ScreenCategory[];
-              const isDraft = project.nodes.length === 0;
 
               return (
                 <Link
                   key={project.id}
                   href={`/app/c/${project.id}`}
-                  className="group flex min-h-[286px] flex-col overflow-hidden border border-border bg-surface transition-colors hover:bg-surface-raised"
+                  className="group relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-surface transition-all hover:-translate-y-0.5 hover:border-border hover:shadow-lg"
                 >
-                  <div className="h-[148px] border-b border-border bg-bg">
+                  <div className="h-[144px] overflow-hidden bg-bg">
                     <ProjectThumb project={project} />
                   </div>
-                  <div className="flex flex-1 flex-col justify-between gap-4 p-3">
+
+                  <button
+                    type="button"
+                    onClick={(event) => handleDelete(event, project.id, project.name)}
+                    aria-label={`Delete ${project.name}`}
+                    className="absolute right-2.5 top-2.5 flex h-7 w-7 items-center justify-center rounded-full bg-bg/80 text-text-secondary opacity-0 backdrop-blur transition-all hover:bg-danger/15 hover:text-danger group-hover:opacity-100"
+                  >
+                    <Trash2Icon className="h-3.5 w-3.5" />
+                  </button>
+
+                  <div className="flex flex-1 flex-col gap-2.5 p-3.5">
                     <div>
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="border border-border bg-bg px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-text-secondary">
-                          {isDraft ? "draft" : "v0.1"}
-                        </span>
-                        <span className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={(event) =>
-                              handleDelete(event, project.id, project.name)
-                            }
-                            aria-label={`Delete ${project.name}`}
-                            className="inline-flex h-6 w-6 items-center justify-center border border-transparent text-text-secondary transition-colors hover:border-danger/40 hover:bg-danger/10 hover:text-danger"
-                          >
-                            <Trash2Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                          </button>
-                          <span className="font-mono text-[10px] uppercase tracking-wide text-text-secondary transition-colors group-hover:text-accent">
-                            Open
-                          </span>
-                        </span>
-                      </div>
-                      <h2 className="truncate text-sm font-bold leading-tight text-text-primary">
+                      <h2 className="truncate text-sm font-semibold text-text-primary">
                         {project.name}
                       </h2>
-                      <p className="mt-1 font-mono text-xs leading-tight text-text-secondary">
-                        edited {formatEdited(project.updatedAt)}
+                      <p className="mt-0.5 text-xs text-text-secondary">
+                        {project.nodes.length === 0
+                          ? "Draft"
+                          : `${project.nodes.length} screens · edited ${formatRelative(project.updatedAt)}`}
                       </p>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 font-mono text-[11px] text-text-secondary">
-                      <div className="border border-border bg-bg px-2 py-1.5">
-                        <span className="text-text-primary">{project.nodes.length}</span> nodes
-                      </div>
-                      <div className="border border-border bg-bg px-2 py-1.5">
-                        <span className="text-text-primary">{project.edges.length}</span> edges
-                      </div>
-                    </div>
-
-                    <div className="flex min-h-4 items-center gap-1.5">
-                      {categories.length === 0 ? (
-                        <span className="font-mono text-[11px] text-text-secondary">
-                          no categories yet
-                        </span>
-                      ) : (
-                        categories.map((category) => (
+                    {categories.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {categories.map((category) => (
                           <span
                             key={category}
-                            className="inline-flex items-center gap-1 border border-border bg-bg px-1.5 py-0.5 font-mono text-[10px] uppercase text-text-secondary"
+                            className="inline-flex items-center gap-1 rounded-full bg-surface-raised px-2 py-0.5 text-[11px] text-text-secondary"
                           >
                             <span
                               aria-hidden="true"
-                              className="h-1.5 w-1.5"
+                              className="h-1.5 w-1.5 rounded-full"
                               style={{ backgroundColor: categoryMeta[category].colorVar }}
                             />
                             {categoryMeta[category].label}
                           </span>
-                        ))
-                      )}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </Link>
               );
