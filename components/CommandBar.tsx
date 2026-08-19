@@ -148,6 +148,7 @@ export function CommandBar({
                 submit();
               }
             }}
+            maxLength={2000}
             placeholder="Describe your app, or a change… e.g. add a payment step after cart"
             className="min-w-0 flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-secondary focus:outline-none"
           />
